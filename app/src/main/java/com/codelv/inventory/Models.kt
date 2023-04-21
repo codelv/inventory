@@ -437,7 +437,7 @@ interface ScanManager {
     entities = [Part::class, Scan::class],
     exportSchema = true,
     autoMigrations = [
-        AutoMigration (from = 1, to = 2)
+        AutoMigration(from = 1, to = 2)
     ]
 )
 @TypeConverters(Converters::class)

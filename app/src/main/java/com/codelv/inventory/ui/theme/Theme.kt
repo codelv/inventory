@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.ViewCompat
 
 
-
 class Colors {
     companion object {
         val Danger = Color(0xFFB71C1C)

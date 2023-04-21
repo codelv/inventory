@@ -109,7 +109,7 @@ fun ScansScreen(nav: NavHostController, state: AppViewModel) {
     val snackbarState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val scaffoldState = rememberBottomSheetScaffoldState()
-    var selectedScan by remember { mutableStateOf(Scan(id=0)) }
+    var selectedScan by remember { mutableStateOf(Scan(id = 0)) }
     BottomSheetScaffold(
         scaffoldState = scaffoldState,
         snackbarHost = { SnackbarHost(snackbarState) },
@@ -178,7 +178,7 @@ fun ScansScreen(nav: NavHostController, state: AppViewModel) {
                         Button(
                             onClick = {
                                 scope.launch {
-                                    val part = Part(id=0, mpn=selectedScan.value)
+                                    val part = Part(id = 0, mpn = selectedScan.value)
                                     state.addPart(part)
                                     nav.navigate("edit-part?id=${part.id}")
                                 }
@@ -326,7 +326,7 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                             "${state.parts.size}",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.secondary,
-                            modifier= Modifier
+                            modifier = Modifier
                                 .padding(8.dp)
                                 .align(Alignment.CenterVertically)
                         )
@@ -544,7 +544,7 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConfirmRemoveDialog( onDismiss: ()->Unit, onConfirm: ()->Unit) {
+fun ConfirmRemoveDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(onDismissRequest = { onDismiss() }) {
         Card(
             shape = RoundedCornerShape(10.dp),
@@ -620,7 +620,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         Text("Add Part")
                     } else {
                         SelectionContainer {
-                            Text(partMpn)
+                            Text(partMpn, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 },
@@ -980,39 +980,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     fontSize = 12.sp,
                     modifier = Modifier.padding(8.dp, 4.dp)
                 )
-//                Row {
-//
-//                        var loading by remember { mutableStateOf(false) };
-//                        Button(
-//                            modifier = Modifier.padding(8.dp),
-//                            onClick = {
-//                                if (!loading) {
-//
-//                                }
-//                            }
-//                        ) {
-//                            Row {
-//                                if (loading) {
-//                                    Text("Importing...")
-//                                    CircularProgressIndicator(
-//                                        modifier = Modifier
-//                                            .size(16.dp, 16.dp)
-//                                            .padding(4.dp, 0.dp, 0.dp, 0.dp),
-//                                        color = MaterialTheme.colorScheme.onPrimary,
-//                                    )
-//                                } else {
-//                                    Text("Import from Digikey")
-//                                }
-//
-//                            }
-//
-//                        }
-//
-//                    }
-
-
-
-                }
+            }
         }
     )
 }
