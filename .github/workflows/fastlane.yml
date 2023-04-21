@@ -1,0 +1,11 @@
+on: [push]
+jobs:
+  check-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ashutoshgngwr/validate-fastlane-supply-metadata@v2
+        with:
+          fastlaneDir: ./metadata # optional
+          usePlayStoreLocales: true # optional
+

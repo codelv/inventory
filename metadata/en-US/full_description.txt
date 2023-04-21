@@ -1,0 +1,6 @@
+Inventory is a simple app to manage electronic your components.
+
+Features:
+- Scan QR Codes from components to import or open parts
+- Track inventory of part
+- Search parts and quickly open their datasheet
