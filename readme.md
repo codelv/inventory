@@ -1,6 +1,6 @@
 # Inventory
 
-A simple android app for mananging electronics components.
+A simple android app for managing electronic components.
 
 See [project page](https://codelv.com/projects/electronics-inventory/) for screenshots.
 
