@@ -12,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.net.URLEncoder
 import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
@@ -145,6 +146,13 @@ class Converters {
     }
 }
 
+enum class ImportResult {
+    Success,
+    Error,
+    MultipleResults,
+    NoData,
+}
+
 @Entity(tableName = "parts")
 data class Part(
     @PrimaryKey(autoGenerate = true) var id: Int,
@@ -170,20 +178,23 @@ data class Part(
     }
 
     fun digikeyUrl(): String {
-        if (sku.trimmedLength() > 2) {
-            return "https://www.digikey.com/en/products/result?keywords=${sku}"
-        }
-        return "https://www.digikey.com/en/products/result?keywords=${mpn}"
+        val k = URLEncoder.encode(if (sku.trimmedLength() > 2) sku else mpn, "utf-8")
+        return "https://www.digikey.com/en/products/result?keywords=${k}"
     }
 
     // Import image, datasheet, and description
-    suspend fun importFromDigikey(overwrite: Boolean = false): Boolean {
-        var url = digikeyUrl();
+    suspend fun importFromDigikey(overwrite: Boolean = false): ImportResult {
+        val url = digikeyUrl();
         if (url.isNotBlank()) {
             try {
                 var result: Boolean = false;
                 var doc = fetch(url);
                 if (doc != null) {
+                    if (doc.selectXpath("//div[@data-testid=\"category-page\"]")
+                        .first() != null) {
+                        return ImportResult.MultipleResults
+                    }
+
                     if (pictureUrl.trimmedLength() == 0 || overwrite) {
                         val img =
                             doc.selectXpath("//*[@data-testid=\"carousel-main-image\"]//img")
@@ -232,13 +243,13 @@ data class Part(
                             }
                         }
                     }
+                    return if (result) ImportResult.Success else ImportResult.NoData
                 }
-                return result
             } catch (e: java.lang.Exception) {
                 Log.e("Part", e.toString())
             }
         }
-        return false
+        return ImportResult.Error
     }
 }
 

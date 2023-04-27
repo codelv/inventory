@@ -603,6 +603,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
     var partSupplierUrl by remember { mutableStateOf(originalPart.digikeyUrl()) }
     var partNumOrdered by remember { mutableStateOf(originalPart.num_ordered) };
     var partNumInStock by remember { mutableStateOf(originalPart.num_in_stock) };
+    var partUnitPrice by remember { mutableStateOf(originalPart.unit_price) };
 
     var partDatasheet by remember { mutableStateOf(originalPart.datasheetUrl) };
     var partImage by remember { mutableStateOf(originalPart.pictureUrl) };
@@ -651,18 +652,54 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                 text = { Text("Import from Digikey") },
                                 onClick = {
                                     scope.launch {
-                                        if (originalPart.importFromDigikey()) {
-                                            // Force update
-                                            partImage = originalPart.pictureUrl
-                                            partDatasheet = originalPart.datasheetUrl
-                                            partDesc = originalPart.description
-                                            partManufacturer = originalPart.manufacturer
-                                            partUpdated = originalPart.updated
-                                            state.savePart(originalPart);
-                                            partId = originalPart.id
-                                            snackbarState.showSnackbar("Imported!")
-                                        } else {
-                                            snackbarState.showSnackbar("Failed to import.")
+                                        when (originalPart.importFromDigikey()) {
+                                            ImportResult.Success -> {
+                                                // Force update
+                                                partImage = originalPart.pictureUrl
+                                                partDatasheet = originalPart.datasheetUrl
+                                                partDesc = originalPart.description
+                                                partManufacturer = originalPart.manufacturer
+                                                partUpdated = originalPart.updated
+
+                                                // If import is pressed before save
+                                                var msg = "Imported!"
+                                                if (partId == 0) {
+                                                    if (state.addPart(originalPart)) {
+                                                        partId = originalPart.id
+                                                    } else {
+                                                        msg = "A part with this MPN already exists!"
+                                                    }
+                                                } else {
+                                                    state.savePart(originalPart);
+                                                }
+                                                snackbarState.showSnackbar(msg)
+                                            }
+                                            ImportResult.NoData-> {
+                                                snackbarState.showSnackbar("No data was imported.")
+                                            }
+                                            ImportResult.MultipleResults -> {
+                                                val r = snackbarState.showSnackbar(
+                                                    "No exact part match found. Try adding an SKU",
+                                                    actionLabel="Search Digikey"
+                                                )
+                                                when (r) {
+                                                    SnackbarResult.ActionPerformed -> {
+                                                        try {
+                                                            val browserIntent =
+                                                                Intent(Intent.ACTION_VIEW, Uri.parse(originalPart.digikeyUrl()))
+                                                            context.startActivity(browserIntent)
+                                                        } catch (e: Exception) {
+                                                            scope.launch {
+                                                                snackbarState.showSnackbar("Search url is invalid")
+                                                            }
+                                                        }
+                                                    }
+                                                    SnackbarResult.Dismissed -> {}
+                                                }
+                                            }
+                                            else -> {
+                                                snackbarState.showSnackbar("Failed to import.")
+                                            }
                                         }
                                     }
                                 },
@@ -719,14 +756,19 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     shape = CircleShape,
                     onClick = {
                         scope.launch {
-                            if (originalPart.id == 0) {
-                                state.addPart(originalPart);
-                                partId = originalPart.id
-                                Log.d(TAG, "Added new part ${originalPart.id}")
+                            var msg = "Part saved!"
+                            if (partId == 0) {
+                                if (state.addPart(originalPart)) {
+                                    partId = originalPart.id
+                                    Log.d(TAG, "Added new part ${originalPart.id}")
+                                } else {
+                                    msg = "Cannot save. A part with this MPN already exists!"
+                                }
+
                             } else {
                                 state.savePart(originalPart);
                             }
-                            snackbarState.showSnackbar("Part saved!")
+                            snackbarState.showSnackbar(msg)
                         }
 
                     }
@@ -755,8 +797,9 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                             .align(Alignment.CenterHorizontally),
                     )
                 }
-                if (partDatasheet.length > 0) {
-                    Row {
+
+                Row {
+                    if (partDatasheet.length > 0) {
                         Button(
                             modifier = Modifier.padding(8.dp),
                             onClick = {
@@ -773,27 +816,27 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         ) {
                             Text("Datasheet")
                         }
-                        if (partSupplierUrl.isNotBlank()) {
-                            Button(
-                                modifier = Modifier.padding(8.dp),
-                                onClick = {
-                                    try {
-                                        val browserIntent =
-                                            Intent(Intent.ACTION_VIEW, Uri.parse(partSupplierUrl))
-                                        context.startActivity(browserIntent)
-                                    } catch (e: Exception) {
-                                        scope.launch {
-                                            snackbarState.showSnackbar("Supplier url is invalid")
-                                        }
+                    }
+                    if (partSupplierUrl.isNotBlank()) {
+                        Button(
+                            modifier = Modifier.padding(8.dp),
+                            onClick = {
+                                try {
+                                    val browserIntent =
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(partSupplierUrl))
+                                    context.startActivity(browserIntent)
+                                } catch (e: Exception) {
+                                    scope.launch {
+                                        snackbarState.showSnackbar("Supplier url is invalid")
                                     }
                                 }
-                            ) {
-                                Text("Open in Digikey")
                             }
+                        ) {
+                            Text("Open in Digikey")
                         }
                     }
-
                 }
+
                 if (editing) {
                     OutlinedTextField(
                         modifier = Modifier
@@ -879,6 +922,28 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         )
                     }
                     Text(
+                        "Unit Price",
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(8.dp, 8.dp, 8.dp, 0.dp)
+                    )
+                    SelectionContainer {
+                        Text(
+                            "$${"%.5f".format(partUnitPrice)}",
+                            modifier = Modifier.padding(8.dp),
+                        )
+                    }
+                    Text(
+                        "Total Price",
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(8.dp, 8.dp, 8.dp, 0.dp)
+                    )
+                    SelectionContainer {
+                        Text(
+                            "$${"%.5f".format(partUnitPrice * partNumOrdered)}",
+                            modifier = Modifier.padding(8.dp),
+                        )
+                    }
+                    Text(
                         "Suppler",
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(8.dp, 8.dp, 8.dp, 0.dp)
@@ -944,6 +1009,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     ),
                     label = { Text("Qty in stock") }
                 )
+
                 OutlinedTextField(
                     modifier = Modifier
                         .padding(8.dp)
@@ -954,6 +1020,28 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     label = { Text("Location") }
                 )
                 if (editing) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .fillMaxWidth(),
+                        value = partUnitPrice.toString(),
+                        onValueChange = {
+                            try {
+                                val v = it.toDouble();
+                                partUnitPrice = v;
+                                originalPart.unit_price = v
+                            } catch (e: Exception) {
+                                Log.d(TAG, e.toString());
+                                partUnitPrice = 0.0
+                                originalPart.unit_price = 0.0
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                        ),
+                        label = { Text("Unit price") }
+                    )
+
                     OutlinedTextField(
                         modifier = Modifier
                             .padding(8.dp)
