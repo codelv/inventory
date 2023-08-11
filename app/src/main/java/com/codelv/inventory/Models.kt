@@ -12,9 +12,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.io.File
+import java.io.OutputStream
 import java.net.URLEncoder
 import java.util.*
-import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 val USER_AGENTS = listOf(
@@ -191,7 +192,8 @@ data class Part(
                 var doc = fetch(url);
                 if (doc != null) {
                     if (doc.selectXpath("//div[@data-testid=\"category-page\"]")
-                        .first() != null) {
+                            .first() != null
+                    ) {
                         return ImportResult.MultipleResults
                     }
 
@@ -478,6 +480,16 @@ abstract class AppDatabase : RoomDatabase() {
 
     }
 
+    fun export(out: OutputStream): Long {
+        if (instance != null) {
+            val db = File(instance!!.openHelper.readableDatabase.path!!)
+            val data = db.readBytes();
+            out.write(data)
+            return data.size.toLong();
+        }
+        return -1;
+    }
+
 }
 
 class AppViewModel(val database: AppDatabase) : ViewModel() {
@@ -550,6 +562,10 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
         part.updated = Date()
         database.parts().update(part)
         Log.d("DB", "Saved part ${part}")
+    }
+
+    fun export(out: OutputStream): Long {
+        return database.export(out);
     }
 
 }

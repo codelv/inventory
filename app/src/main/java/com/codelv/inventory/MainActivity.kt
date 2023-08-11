@@ -3,12 +3,13 @@ package com.codelv.inventory
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.CalendarContract
 import android.util.Log
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,8 +34,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.core.content.ContextCompat.startActivity
 import androidx.core.text.trimmedLength
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
@@ -282,6 +281,7 @@ fun search(parts: List<Part>, query: String, ignoreCase: Boolean = true): List<P
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun PartsScreen(nav: NavHostController, state: AppViewModel) {
+    val context = LocalContext.current;
     val snackbarState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var searchText by remember { mutableStateOf("") }
@@ -315,6 +315,22 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
         }
     )
 
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.sqlite3")
+    ) { mediaPath ->
+        Log.d("Export", "Media path is ${mediaPath}");
+        if (mediaPath != null) {
+            context.contentResolver.openOutputStream(mediaPath, "wt")?.use { stream ->
+                if (state.export(stream) > 0) {
+                    Toast.makeText(context, "Export complete!", 3000).show()
+                } else {
+                    Toast.makeText(context, "Export failed!", 3000).show()
+                }
+
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -333,10 +349,39 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { nav.navigate("edit-part") }) {
+                    var expanded by remember { mutableStateOf(false) }
+                    IconButton(onClick = { expanded = true }) {
                         Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "Add part"
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "More"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Add part") },
+                            onClick = { nav.navigate("edit-part") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = "Add part",
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export database") },
+                            onClick = {
+                                expanded = false
+                                exportLauncher.launch("inventory.db")
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.FileUpload,
+                                    contentDescription = "Export",
+                                )
+                            }
                         )
                     }
                 }
@@ -674,19 +719,22 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                                 }
                                                 snackbarState.showSnackbar(msg)
                                             }
-                                            ImportResult.NoData-> {
+                                            ImportResult.NoData -> {
                                                 snackbarState.showSnackbar("No data was imported.")
                                             }
                                             ImportResult.MultipleResults -> {
                                                 val r = snackbarState.showSnackbar(
                                                     "No exact part match found. Try adding an SKU",
-                                                    actionLabel="Search Digikey"
+                                                    actionLabel = "Search Digikey"
                                                 )
                                                 when (r) {
                                                     SnackbarResult.ActionPerformed -> {
                                                         try {
                                                             val browserIntent =
-                                                                Intent(Intent.ACTION_VIEW, Uri.parse(originalPart.digikeyUrl()))
+                                                                Intent(
+                                                                    Intent.ACTION_VIEW,
+                                                                    Uri.parse(originalPart.digikeyUrl())
+                                                                )
                                                             context.startActivity(browserIntent)
                                                         } catch (e: Exception) {
                                                             scope.launch {
