@@ -42,6 +42,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.codelv.inventory.ui.theme.AppTheme
 import com.codelv.inventory.ui.theme.Colors
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -534,8 +536,11 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
                     }
             ) {
                 if (part.pictureUrl.length > 0) {
+                    val req = ImageRequest.Builder(LocalContext.current).data(part.pictureUrl).addHeader(
+                        "User-Agent", userAgent
+                    ).diskCachePolicy(CachePolicy.ENABLED);
                     AsyncImage(
-                        model = part.pictureUrl,
+                        model = req.build(),
                         contentDescription = null,
                         modifier = Modifier
                             .width(48.dp)
