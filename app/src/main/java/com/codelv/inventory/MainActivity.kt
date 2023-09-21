@@ -536,9 +536,10 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
                     }
             ) {
                 if (part.pictureUrl.length > 0) {
-                    val req = ImageRequest.Builder(LocalContext.current).data(part.pictureUrl).addHeader(
-                        "User-Agent", userAgent
-                    ).diskCachePolicy(CachePolicy.ENABLED);
+                    val req =
+                        ImageRequest.Builder(LocalContext.current).data(part.pictureUrl).addHeader(
+                            "User-Agent", userAgent
+                        ).diskCachePolicy(CachePolicy.ENABLED);
                     AsyncImage(
                         model = req.build(),
                         contentDescription = null,
@@ -650,7 +651,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
     var partSku by remember { mutableStateOf(originalPart.sku) };
     var partMpn by remember { mutableStateOf(originalPart.mpn) };
     var partSupplier by remember { mutableStateOf(originalPart.supplier) };
-    var partSupplierUrl by remember { mutableStateOf(originalPart.digikeyUrl()) }
+    var partSupplierUrl by remember { mutableStateOf(originalPart.supplierUrl()) }
     var partNumOrdered by remember { mutableStateOf(originalPart.num_ordered) };
     var partNumInStock by remember { mutableStateOf(originalPart.num_in_stock) };
     var partUnitPrice by remember { mutableStateOf(originalPart.unit_price) };
@@ -699,10 +700,10 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     ) {
                         if (partMpn.isNotBlank() || partSku.isNotBlank()) {
                             DropdownMenuItem(
-                                text = { Text("Import from Digikey") },
+                                text = { Text("Import from supplier") },
                                 onClick = {
                                     scope.launch {
-                                        when (originalPart.importFromDigikey()) {
+                                        when (originalPart.importFromSupplier()) {
                                             ImportResult.Success -> {
                                                 // Force update
                                                 partImage = originalPart.pictureUrl
@@ -730,7 +731,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                             ImportResult.MultipleResults -> {
                                                 val r = snackbarState.showSnackbar(
                                                     "No exact part match found. Try adding an SKU",
-                                                    actionLabel = "Search Digikey"
+                                                    actionLabel = "Search supplier website"
                                                 )
                                                 when (r) {
                                                     SnackbarResult.ActionPerformed -> {
@@ -738,7 +739,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                                             val browserIntent =
                                                                 Intent(
                                                                     Intent.ACTION_VIEW,
-                                                                    Uri.parse(originalPart.digikeyUrl())
+                                                                    Uri.parse(originalPart.supplierUrl())
                                                                 )
                                                             context.startActivity(browserIntent)
                                                         } catch (e: Exception) {
@@ -885,7 +886,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                 }
                             }
                         ) {
-                            Text("Open in Digikey")
+                            Text("Open supplier website")
                         }
                     }
                 }

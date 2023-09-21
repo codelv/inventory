@@ -178,14 +178,30 @@ data class Part(
         return mpn.length > 0
     }
 
-    fun digikeyUrl(): String {
+    fun supplierUrl(): String {
         val k = URLEncoder.encode(if (sku.trimmedLength() > 2) sku else mpn, "utf-8")
-        return "https://www.digikey.com/en/products/result?keywords=${k}"
+        if (supplier == "LCSC") {
+            if (sku.isNotEmpty()) {
+                return "https://www.lcsc.com/product-detail/${k}.html"
+            }
+            return "https://www.lcsc.com/search?q=${k}"
+        } else {
+            return "https://www.digikey.com/en/products/result?keywords=${k}"
+        }
     }
 
     // Import image, datasheet, and description
+    suspend fun importFromSupplier(overwrite: Boolean = false): ImportResult {
+        if (supplier == "LCSC") {
+            return importFromLCSC()
+        } else {
+            return importFromDigikey()
+        }
+    }
+
+
     suspend fun importFromDigikey(overwrite: Boolean = false): ImportResult {
-        val url = digikeyUrl();
+        val url = supplierUrl();
         if (url.isNotBlank()) {
             try {
                 var result: Boolean = false;
@@ -243,6 +259,97 @@ data class Part(
                                 result = true;
                                 break;
                             }
+                        }
+                    }
+                    return if (result) ImportResult.Success else ImportResult.NoData
+                }
+            } catch (e: java.lang.Exception) {
+                Log.e("Part", e.toString())
+            }
+        }
+        return ImportResult.Error
+    }
+
+    suspend fun importFromLCSC(overwrite: Boolean = false): ImportResult {
+        val url = supplierUrl();
+        if (url.isNotBlank()) {
+            try {
+                var result: Boolean = false;
+                var doc = fetch(url);
+                if (doc != null) {
+                    if (doc.selectXpath("//div[@class=\"product-table\"]")
+                            .first() != null
+                    ) {
+                        // TODO: May show only 1 result
+                        return ImportResult.MultipleResults
+                    }
+
+                    if (pictureUrl.trimmedLength() == 0 || overwrite) {
+                        var img =
+                            doc.selectXpath("//div[@class=\"asset\"]//img")
+                                .first()
+                        if (img == null) {
+
+
+                        }
+                        if (img != null && img.hasAttr("src")) {
+                            this.pictureUrl = cleanUrl(img.attr("src"))
+                            Log.d("DIGIKEY", "Imported picture url")
+                            result = true;
+                        } else {
+                            Log.d("DIGIKEY", "No picture found")
+                        }
+                    }
+
+                    if (datasheetUrl.trimmedLength() == 0 || overwrite) {
+                        var datasheet =
+                            doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Datasheet\")]]//a")
+                                .first()
+                        if (datasheet == null) {
+                            datasheet =
+                                doc.selectXpath("//div[contains(text(), \"Datasheet:\")]/following-sibling::*/a")
+                                    .first()
+                        }
+                        if (datasheet != null && datasheet.hasAttr("href")) {
+                            this.datasheetUrl = cleanUrl(datasheet.attr("href"))
+                            Log.d("LSCS", "Imported datasheet url")
+                            result = true;
+                        } else {
+                            Log.d("LSCS", "No datasheet found")
+                        }
+                    }
+
+                    if (manufacturer.trimmedLength() == 0 || overwrite) {
+                        var mfg =
+                            doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Manufacturer\")]]//a")
+                                .first()
+                        if (mfg == null) {
+                            mfg =
+                                doc.selectXpath("//div[contains(text(), \"Manufacturer:\")]/following-sibling::*/a")
+                                    .first()
+                        }
+                        if (mfg != null && mfg.hasText()) {
+                            this.manufacturer = mfg.text().trim()
+                            Log.d("LSCS", "Imported manufacturer")
+                            result = true;
+                        } else {
+                            Log.d("LSCS", "No manufacturer found")
+                        }
+                    }
+
+                    if (description.trimmedLength() == 0 || overwrite) {
+                        var desc =
+                            doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Description\")]]//td")
+                                .last()
+                        if (desc == null) {
+                            desc =
+                                doc.selectXpath("//div[contains(text(), \"Description:\")]/following-sibling::*")
+                                    .first()
+                        }
+                        if (desc != null && desc.hasText()) {
+                            this.description = desc.text().trim()
+                            Log.d("LSCS", "Imported description")
+                            result = true;
                         }
                     }
                     return if (result) ImportResult.Success else ImportResult.NoData
@@ -342,6 +449,7 @@ data class Scan(
             if (entry.size == 2) {
                 when (entry[0]) {
                     "pm" -> part.mpn = entry[1]
+                    "pc" -> part.sku = entry[1]
                     "qty" -> {
                         try {
                             val qty = Integer.parseUnsignedInt(entry[1])
