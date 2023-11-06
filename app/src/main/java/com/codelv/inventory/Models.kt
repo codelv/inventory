@@ -110,8 +110,12 @@ suspend fun fetch(url: String, retries: Int = 3): Document? {
         for (i in 0..max(1, retries))
             try {
                 var req = Jsoup.connect(url).userAgent(userAgent).followRedirects(true)
-                if (url.contains("digikey")) {
+                if (url.contains("digikey.com")) {
                     req = req.referrer("https://www.digikey.com")
+                } else if (url.contains("mouser.com")) {
+                    // TODO: Use device locale
+                    req =
+                        req.referrer("https://www.mouser.com").header("Accept-Language", "en-US,en")
                 }
                 doc = req.get()
                 Log.d("FETCH", "OK!")
@@ -180,11 +184,13 @@ data class Part(
 
     fun supplierUrl(): String {
         val k = URLEncoder.encode(if (sku.trimmedLength() > 2) sku else mpn, "utf-8")
-        if (supplier == "LCSC") {
+        if (supplier.uppercase() == "LCSC") {
             if (sku.isNotEmpty()) {
                 return "https://www.lcsc.com/product-detail/${k}.html"
             }
             return "https://www.lcsc.com/search?q=${k}"
+        } else if (supplier.lowercase() == "mouser") {
+            return "https://www.mouser.com/c/?q=${k}"
         } else {
             return "https://www.digikey.com/en/products/result?keywords=${k}"
         }
@@ -192,15 +198,99 @@ data class Part(
 
     // Import image, datasheet, and description
     suspend fun importFromSupplier(overwrite: Boolean = false): ImportResult {
-        if (supplier == "LCSC") {
+        if (supplier.uppercase() == "LCSC") {
             return importFromLCSC()
+        } else if (supplier.lowercase() == "mouser") {
+            return importFromMouser()
         } else {
             return importFromDigikey()
         }
     }
 
+    suspend fun importFromMouser(overwrite: Boolean = false): ImportResult {
+        val tag = "Mouser";
+        val url = supplierUrl();
+        if (url.isNotBlank()) {
+            try {
+                var result: Boolean = false;
+                var doc = fetch(url);
+                if (doc != null) {
+                    if (doc.selectXpath("//body[@itemtype=\"http://schema.org/SearchResultsPage\"]")
+                            .first() != null
+                    ) {
+                        return ImportResult.MultipleResults
+                    }
+
+                    if (pictureUrl.trimmedLength() == 0 || overwrite) {
+                        val img =
+                            doc.selectXpath("//meta[@property=\"og:image\"]")
+                                .first()
+                        if (img != null && img.hasAttr("content")) {
+                            this.pictureUrl = cleanUrl(img.attr("content"))
+                            Log.d(tag, "Imported picture url")
+                            result = true;
+                        } else {
+                            Log.d(tag, "No picture found")
+                        }
+                    }
+
+                    if (datasheetUrl.trimmedLength() == 0 || overwrite) {
+                        val datasheet =
+                            doc.selectXpath("//a[@id=\"pdp-datasheet_0\"]").first()
+                        if (datasheet != null && datasheet.hasAttr("href")) {
+                            this.datasheetUrl = cleanUrl(datasheet.attr("href"))
+                            Log.d(tag, "Imported datasheet url")
+                            result = true;
+                        } else {
+                            Log.d(tag, "No datasheet found")
+                        }
+                    }
+
+                    if (manufacturer.trimmedLength() == 0 || overwrite) {
+                        val mfg =
+                            doc.selectXpath("//a[@id=\"lnkManufacturerName\"]")
+                                .first()
+                        if (mfg != null && mfg.hasText()) {
+                            this.manufacturer = mfg.text().trim()
+                            Log.d(tag, "Imported manufacturer")
+                            result = true;
+                        } else {
+                            Log.d(tag, "No manufacturer found")
+                        }
+                    }
+
+                    if (sku.trimmedLength() == 0 || overwrite) {
+                        val sku =
+                            doc.selectXpath("//span[@id=\"spnMouserPartNumFormattedForProdInfo\"]")
+                                .first()
+                        if (sku != null && sku.hasText()) {
+                            this.sku = sku.text().trim()
+                            Log.d(tag, "Imported supplier part number")
+                            result = true;
+                        } else {
+                            Log.d(tag, "No supplier part number found")
+                        }
+                    }
+
+                    if (description.trimmedLength() == 0 || overwrite) {
+                        val span = doc.selectXpath("//span[@id=\"spnDescription\"]").first();
+                        if (span != null && span.hasText()) {
+                            this.description = span.text().trim()
+                            Log.d(tag, "Imported description")
+                            result = true;
+                        }
+                    }
+                    return if (result) ImportResult.Success else ImportResult.NoData
+                }
+            } catch (e: java.lang.Exception) {
+                Log.e("Part", e.toString())
+            }
+        }
+        return ImportResult.Error
+    }
 
     suspend fun importFromDigikey(overwrite: Boolean = false): ImportResult {
+        val tag = "Digikey";
         val url = supplierUrl();
         if (url.isNotBlank()) {
             try {
@@ -219,10 +309,10 @@ data class Part(
                                 .first()
                         if (img != null && img.hasAttr("src")) {
                             this.pictureUrl = cleanUrl(img.attr("src"))
-                            Log.d("DIGIKEY", "Imported picture url")
+                            Log.d(tag, "Imported picture url")
                             result = true;
                         } else {
-                            Log.d("DIGIKEY", "No picture found")
+                            Log.d(tag, "No picture found")
                         }
                     }
 
@@ -231,10 +321,10 @@ data class Part(
                             doc.selectXpath("//a[@data-testid=\"datasheet-download\"]").first()
                         if (datasheet != null && datasheet.hasAttr("href")) {
                             this.datasheetUrl = cleanUrl(datasheet.attr("href"))
-                            Log.d("DIGIKEY", "Imported datasheet url")
+                            Log.d(tag, "Imported datasheet url")
                             result = true;
                         } else {
-                            Log.d("DIGIKEY", "No datasheet found")
+                            Log.d(tag, "No datasheet found")
                         }
                     }
 
@@ -244,10 +334,10 @@ data class Part(
                                 .first()
                         if (mfg != null && mfg.hasText()) {
                             this.manufacturer = mfg.text().trim()
-                            Log.d("DIGIKEY", "Imported manufacturer")
+                            Log.d(tag, "Imported manufacturer")
                             result = true;
                         } else {
-                            Log.d("DIGIKEY", "No manufacturer found")
+                            Log.d(tag, "No manufacturer found")
                         }
                     }
 
@@ -255,7 +345,7 @@ data class Part(
                         for (div in doc.selectXpath("//*[@data-testid=\"detailed-description\"]/*/div")) {
                             if (div.hasText() && !div.text().startsWith("Detailed")) {
                                 this.description = div.text()
-                                Log.d("DIGIKEY", "Imported description")
+                                Log.d(tag, "Imported description")
                                 result = true;
                                 break;
                             }
@@ -271,6 +361,7 @@ data class Part(
     }
 
     suspend fun importFromLCSC(overwrite: Boolean = false): ImportResult {
+        val tag = "LCSC";
         val url = supplierUrl();
         if (url.isNotBlank()) {
             try {
@@ -294,10 +385,10 @@ data class Part(
                         }
                         if (img != null && img.hasAttr("src")) {
                             this.pictureUrl = cleanUrl(img.attr("src"))
-                            Log.d("DIGIKEY", "Imported picture url")
+                            Log.d(tag, "Imported picture url")
                             result = true;
                         } else {
-                            Log.d("DIGIKEY", "No picture found")
+                            Log.d(tag, "No picture found")
                         }
                     }
 
@@ -312,10 +403,10 @@ data class Part(
                         }
                         if (datasheet != null && datasheet.hasAttr("href")) {
                             this.datasheetUrl = cleanUrl(datasheet.attr("href"))
-                            Log.d("LSCS", "Imported datasheet url")
+                            Log.d(tag, "Imported datasheet url")
                             result = true;
                         } else {
-                            Log.d("LSCS", "No datasheet found")
+                            Log.d(tag, "No datasheet found")
                         }
                     }
 
@@ -330,10 +421,10 @@ data class Part(
                         }
                         if (mfg != null && mfg.hasText()) {
                             this.manufacturer = mfg.text().trim()
-                            Log.d("LSCS", "Imported manufacturer")
+                            Log.d(tag, "Imported manufacturer")
                             result = true;
                         } else {
-                            Log.d("LSCS", "No manufacturer found")
+                            Log.d(tag, "No manufacturer found")
                         }
                     }
 
@@ -348,7 +439,7 @@ data class Part(
                         }
                         if (desc != null && desc.hasText()) {
                             this.description = desc.text().trim()
-                            Log.d("LSCS", "Imported description")
+                            Log.d(tag, "Imported description")
                             result = true;
                         }
                     }
@@ -428,13 +519,6 @@ data class Scan(
             }
         }
         if (part.isValid()) {
-            if (part.order_number.length > 0 && qtyIndex == 8) {
-                part.supplier = "Digikey"
-            } else if (value.startsWith("0")) {
-                part.supplier = "Nuvoton"
-            } else {
-                part.supplier = "TI"
-            }
             return part;
         }
         return null
