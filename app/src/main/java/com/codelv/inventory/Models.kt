@@ -14,8 +14,10 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.io.File
 import java.io.OutputStream
+import java.io.InputStream
 import java.net.URLEncoder
 import java.util.*
+import java.util.concurrent.Callable
 import kotlin.math.max
 
 val USER_AGENTS = listOf(
@@ -653,7 +655,7 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         @Volatile
-        private var instance: AppDatabase? = null
+        var instance: AppDatabase? = null
 
         fun instance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
@@ -672,15 +674,45 @@ abstract class AppDatabase : RoomDatabase() {
 
     }
 
-    fun export(out: OutputStream): Long {
-        if (instance != null) {
+    fun exportDb(out: OutputStream): Long {
+        if (instance == null) {
+            return -1;
+        }
+        try {
             val db = File(instance!!.openHelper.readableDatabase.path!!)
             val data = db.readBytes();
             out.write(data)
             return data.size.toLong();
+        } catch (e: Exception) {
+            Log.e("ExportDb", "Failed to export: ${e}")
+            return -2;
         }
-        return -1;
     }
+
+    suspend fun importDb(context: Context, stream: InputStream): Long {
+        if (instance == null) {
+            return -1;
+        }
+        try {
+            var newDb = Room.databaseBuilder(
+                context,
+                AppDatabase::class.java,
+                "imported.db"
+            ).createFromInputStream({stream}).build()
+
+            val newParts = instance!!.parts().insertAll(*newDb.parts().all().toTypedArray())
+            Log.d("ImportDb", "Imported ${newParts.size} parts")
+            val newScans = instance!!.scans().insertAll(*newDb.scans().all().toTypedArray())
+            Log.d("ImportDb", "Imported ${newScans.size} scans")
+
+            return (newParts.size + newScans.size).toLong()
+        } catch (e: Exception) {
+            Log.e(TAG, e.toString())
+            return -1;
+        }
+
+    }
+
 
 }
 
@@ -691,6 +723,12 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
 
     init {
         scanOptions.setOrientationLocked(false).setBeepEnabled(false)
+    }
+
+    suspend fun reload() {
+        parts.clear()
+        scans.clear()
+        load()
     }
 
     suspend fun load() {
@@ -756,8 +794,10 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
         Log.d("DB", "Saved part ${part}")
     }
 
-    fun export(out: OutputStream): Long {
-        return database.export(out);
+    fun exportDb(out: OutputStream): Long {
+        return database.exportDb(out);
     }
-
+    suspend fun importDb(context: Context, stream: InputStream): Long {
+        return database.importDb(context, stream);
+    }
 }

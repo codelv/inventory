@@ -41,9 +41,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import coil.compose.AsyncImage
-import coil.request.CachePolicy
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.network.NetworkHeaders
+import coil3.network.httpHeaders
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import com.codelv.inventory.ui.theme.AppTheme
 import com.codelv.inventory.ui.theme.Colors
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -323,7 +325,7 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
         Log.d("Export", "Media path is ${mediaPath}");
         if (mediaPath != null) {
             context.contentResolver.openOutputStream(mediaPath, "wt")?.use { stream ->
-                if (state.export(stream) > 0) {
+                if (state.exportDb(stream) > 0) {
                     Toast.makeText(context, "Export complete!", 3000).show()
                 } else {
                     Toast.makeText(context, "Export failed!", 3000).show()
@@ -333,12 +335,32 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
         }
     }
 
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { mediaPath ->
+        Log.d("Import", "Media path is ${mediaPath}");
+        if (mediaPath != null) {
+            scope.launch {
+                context.contentResolver.openInputStream(mediaPath)?.use { stream ->
+
+                    if (state.importDb(context, stream) > 0) {
+                        state.reload()
+                        Toast.makeText(context, "Import complete!", 3000).show()
+                    } else {
+                        Toast.makeText(context, "Import failed!", 3000).show()
+                    }
+
+                }
+}
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 modifier = Modifier.shadow(20.dp),
                 title = {
-                    Row {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Parts")
                         Text(
                             "${state.parts.size}",
@@ -382,6 +404,19 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                                 Icon(
                                     Icons.Filled.FileUpload,
                                     contentDescription = "Export",
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Import database") },
+                            onClick = {
+                                expanded = false
+                                importLauncher.launch(arrayOf("application/x-sqlite3","application/vnd.sqlite3", "application/octet-stream"))
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.FileDownload,
+                                    contentDescription = "Import",
                                 )
                             }
                         )
@@ -489,7 +524,6 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                                     fontSize = 10.sp,
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(0.dp, 4.dp, 0.dp, 0.dp)
                                 )
                             },
                             modifier = Modifier
@@ -526,7 +560,7 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(parts) { part ->
+        items(parts, key = { p -> p.id } ) { part ->
             Row(
                 modifier = Modifier
                     .padding(8.dp)
@@ -537,9 +571,10 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
             ) {
                 if (part.pictureUrl.length > 0) {
                     val req =
-                        ImageRequest.Builder(LocalContext.current).data(part.pictureUrl).addHeader(
-                            "User-Agent", userAgent
-                        ).diskCachePolicy(CachePolicy.ENABLED);
+                        ImageRequest.Builder(LocalContext.current).data(part.pictureUrl).diskCachePolicy(
+                            CachePolicy.ENABLED).httpHeaders(
+                            NetworkHeaders.Builder().add("User-Agent", userAgent).build()
+                        );
                     AsyncImage(
                         model = req.build(),
                         contentDescription = null,
