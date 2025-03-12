@@ -674,11 +674,22 @@ abstract class AppDatabase : RoomDatabase() {
 
     }
 
+    fun fullCheckpoint() {
+        // When Android uses write ahead logging the database is empty
+        // but instead has shm and wal files. This forces it to write out to the actual .db file
+        if (instance!!.openHelper.writableDatabase.isWriteAheadLoggingEnabled) {
+            val cursor = instance!!.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(full)");
+            cursor.close()
+        }
+    }
+
     fun exportDb(out: OutputStream): Long {
         if (instance == null) {
             return -1;
         }
         try {
+            // Create checkpoint before exporting
+            fullCheckpoint();
             val db = File(instance!!.openHelper.readableDatabase.path!!)
             val data = db.readBytes();
             out.write(data)
