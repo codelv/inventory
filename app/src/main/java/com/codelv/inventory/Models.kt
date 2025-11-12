@@ -461,19 +461,6 @@ data class Scan(
     var value: String = "",
     val created: Date = Date(),
 ) {
-    @delegate:Ignore
-    val valueBytes: String by lazy {
-        var bytes = "";
-        for (c in value) {
-            when (c.code) {
-                in 48..57 -> bytes += "${c}," // 0-9
-                in 97..122 -> bytes += "${c}," // a-z
-                in 65..90 -> bytes += "${c}," // A-Z
-                else -> bytes += "${c} (${c.code}),"
-            }
-        }
-        bytes
-    }
 
     @delegate:Ignore
     val part: Part? by lazy {
@@ -498,17 +485,16 @@ data class Scan(
     // [[)>06, P, 1PSN65LVDS33PW, 6P, 2PB, Q30, V0033317, 1T1409142ZFD, 4WTKY, D2245+5, 31T2917413TW2, 20LTID, 21LDEU, 22LTAI, 23LTWN, EG4, 3Z1/260C/UNLIM;//;121722, L1285, 7K, N00]
     fun parseTrackingQrcode(): Part? {
         var entries = value.split(29.toChar())
-        // Log.d("Scan", "Entries ${entries}")
+        Log.d("Scan", "Entries ${entries}")
         var part = Part(id = 0);
-        var qtyIndex = 0;
-
         for ((i, p) in entries.withIndex()) {
             if (p.startsWith("1P") && p.length > 2) {
                 part.mpn = p.substring(2) // MPN
             } else if (p.startsWith("Q") && p.length > 1) {
                 try {
-                    val qty = Integer.parseUnsignedInt(p.substring(1));
-                    qtyIndex = i;
+                    // Remove the Q and any trailing unicode stuff
+                    val v = p.filter { it.isDigit() };
+                    val qty = Integer.parseUnsignedInt(v);
                     part.num_in_stock = qty;
                     part.num_ordered = qty;
                 } catch (e: java.lang.NumberFormatException) {
@@ -677,8 +663,9 @@ abstract class AppDatabase : RoomDatabase() {
     fun fullCheckpoint() {
         // When Android uses write ahead logging the database is empty
         // but instead has shm and wal files. This forces it to write out to the actual .db file
-        if (instance!!.openHelper.writableDatabase.isWriteAheadLoggingEnabled) {
-            val cursor = instance!!.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(full)");
+        val db = instance!!.openHelper.writableDatabase;
+        if (db.isWriteAheadLoggingEnabled) {
+            val cursor = db.query("PRAGMA wal_checkpoint(full)");
             cursor.close()
         }
     }
