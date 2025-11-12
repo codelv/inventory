@@ -531,6 +531,7 @@ data class Scan(
                             // Pass
                         }
                     }
+
                     else -> {}
                 }
             }
@@ -696,7 +697,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context,
                 AppDatabase::class.java,
                 "imported.db"
-            ).createFromInputStream({stream}).build()
+            ).createFromInputStream({ stream }).build()
 
             val newParts = instance!!.parts().insertAll(*newDb.parts().all().toTypedArray())
             Log.d("ImportDb", "Imported ${newParts.size} parts")
@@ -720,7 +721,14 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
     var scanOptions: ScanOptions = ScanOptions();
 
     init {
-        scanOptions.setOrientationLocked(false).setBeepEnabled(false)
+        scanOptions
+            .setOrientationLocked(false)
+            .setBeepEnabled(false)
+            .setDesiredBarcodeFormats(
+                ScanOptions.DATA_MATRIX,
+                ScanOptions.QR_CODE,
+                ScanOptions.PDF_417
+            )
     }
 
     suspend fun reload() {
@@ -795,6 +803,7 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
     fun exportDb(out: OutputStream): Long {
         return database.exportDb(out);
     }
+
     suspend fun importDb(context: Context, stream: InputStream): Long {
         return database.importDb(context, stream);
     }
