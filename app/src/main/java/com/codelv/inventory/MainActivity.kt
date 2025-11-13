@@ -10,19 +10,78 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditOff
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -54,7 +113,6 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.journeyapps.barcodescanner.ScanContract
 import kotlinx.coroutines.launch
-import java.util.*
 
 
 val TAG = "MainActivity";
@@ -65,7 +123,9 @@ class MainActivity : ComponentActivity() {
         var state = AppViewModel(database = (application as App).db)
         state.viewModelScope.launch {
             state.load();
+            state.loadSettings(context = applicationContext);
         }
+
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         setContent {
             AppTheme {
@@ -92,6 +152,10 @@ fun Main(state: AppViewModel) {
         composable("scans") {
             Log.i(TAG, "Navigate to scans list")
             ScansScreen(nav, state)
+        }
+        composable("settings") {
+            Log.i(TAG, "Navigate to settings")
+            SettingsScreen(nav, state)
         }
         composable(
             "edit-part?id={id}",
@@ -121,14 +185,14 @@ fun ScansScreen(nav: NavHostController, state: AppViewModel) {
                 modifier = Modifier.shadow(20.dp),
                 title = { Text("Scanned Barcodes") },
                 navigationIcon =
-                {
-                    IconButton(onClick = { nav.navigateUp() }) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
+                    {
+                        IconButton(onClick = { nav.navigateUp() }) {
+                            Icon(
+                                imageVector = Icons.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
                     }
-                }
             )
         },
         content = {
@@ -351,7 +415,7 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                     }
 
                 }
-}
+            }
         }
     }
 
@@ -395,6 +459,16 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text("Settings") },
+                            onClick = { nav.navigate("settings") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Settings,
+                                    contentDescription = "Settings",
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("Export database") },
                             onClick = {
                                 expanded = false
@@ -411,7 +485,13 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                             text = { Text("Import database") },
                             onClick = {
                                 expanded = false
-                                importLauncher.launch(arrayOf("application/x-sqlite3","application/vnd.sqlite3", "application/octet-stream"))
+                                importLauncher.launch(
+                                    arrayOf(
+                                        "application/x-sqlite3",
+                                        "application/vnd.sqlite3",
+                                        "application/octet-stream"
+                                    )
+                                )
                             },
                             leadingIcon = {
                                 Icon(
@@ -479,6 +559,7 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                                 when (result) {
                                     SnackbarResult.Dismissed -> {
                                     }
+
                                     SnackbarResult.ActionPerformed -> {
                                         cameraPermissionState.launchPermissionRequest()
                                     }
@@ -560,7 +641,7 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(parts, key = { p -> p.id } ) { part ->
+        items(parts, key = { p -> p.id }) { part ->
             Row(
                 modifier = Modifier
                     .padding(8.dp)
@@ -571,10 +652,12 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
             ) {
                 if (part.pictureUrl.length > 0) {
                     val req =
-                        ImageRequest.Builder(LocalContext.current).data(part.pictureUrl).diskCachePolicy(
-                            CachePolicy.ENABLED).httpHeaders(
-                            NetworkHeaders.Builder().add("User-Agent", userAgent).build()
-                        );
+                        ImageRequest.Builder(LocalContext.current).data(part.pictureUrl)
+                            .diskCachePolicy(
+                                CachePolicy.ENABLED
+                            ).httpHeaders(
+                                NetworkHeaders.Builder().add("User-Agent", userAgent).build()
+                            );
                     AsyncImage(
                         model = req.build(),
                         contentDescription = null,
@@ -712,14 +795,14 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     }
                 },
                 navigationIcon =
-                {
-                    IconButton(onClick = { nav.navigateUp() }) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
+                    {
+                        IconButton(onClick = { nav.navigateUp() }) {
+                            Icon(
+                                imageVector = Icons.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
+                    },
                 actions = {
                     var expanded by remember { mutableStateOf(false) }
                     var showRemoveDialog by remember { mutableStateOf(false) };
@@ -738,6 +821,10 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                 text = { Text("Import from supplier") },
                                 onClick = {
                                     scope.launch {
+                                        if (originalPart.supplier.isBlank()) {
+                                            originalPart.supplier = state.settings.defaultSupplier;
+                                            partSupplier = state.settings.defaultSupplier;
+                                        }
                                         when (originalPart.importFromSupplier()) {
                                             ImportResult.Success -> {
                                                 // Force update
@@ -760,9 +847,11 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                                 }
                                                 snackbarState.showSnackbar(msg)
                                             }
+
                                             ImportResult.NoData -> {
                                                 snackbarState.showSnackbar("No data was imported.")
                                             }
+
                                             ImportResult.MultipleResults -> {
                                                 val r = snackbarState.showSnackbar(
                                                     "No exact part match found. Try adding an SKU",
@@ -783,9 +872,11 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                                             }
                                                         }
                                                     }
+
                                                     SnackbarResult.Dismissed -> {}
                                                 }
                                             }
+
                                             else -> {
                                                 snackbarState.showSnackbar("Failed to import.")
                                             }
@@ -846,6 +937,11 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     onClick = {
                         scope.launch {
                             var msg = "Part saved!"
+                            // Set default supplier if none was set
+                            if (originalPart.supplier.isBlank()) {
+                                originalPart.supplier = state.settings.defaultSupplier;
+                                partSupplier = state.settings.defaultSupplier;
+                            }
                             if (partId == 0) {
                                 if (state.addPart(originalPart)) {
                                     partId = originalPart.id
@@ -936,15 +1032,52 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         onValueChange = { partMpn = it; originalPart.mpn = it },
                         label = { Text("MPN") }
                     )
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .fillMaxWidth(),
-                        value = partManufacturer,
-                        onValueChange = { partManufacturer = it; originalPart.manufacturer = it },
-                        singleLine = true,
-                        label = { Text("Manufacturer") }
-                    )
+                    var mfgMenuExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        mfgMenuExpanded,
+                        onExpandedChange = { mfgMenuExpanded = it }) {
+                        OutlinedTextField(
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .menuAnchor() // Needed or dropdown will not show
+                                .fillMaxWidth(),
+                            value = partManufacturer,
+                            onValueChange = {
+                                partManufacturer = it; originalPart.manufacturer = it
+                            },
+                            singleLine = true,
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = mfgMenuExpanded)
+                            },
+                            label = { Text("Manufacturer") }
+                        )
+                        // filter options based on text field value (i.e. crude autocomplete)
+                        val filterOpts = state.manufacturerOptions.filter {
+                            it.contains(
+                                partManufacturer,
+                                ignoreCase = true
+                            )
+                        }
+                        if (filterOpts.isNotEmpty()) {
+                            ExposedDropdownMenu(
+                                expanded = mfgMenuExpanded,
+                                onDismissRequest = { mfgMenuExpanded = false },
+                                modifier = Modifier.heightIn(max = 200.dp)
+                            ) {
+                                filterOpts.forEach { option ->
+                                    DropdownMenuItem(
+                                        onClick = {
+                                            partManufacturer = option
+                                            originalPart.manufacturer = option
+                                            mfgMenuExpanded = false
+                                        }
+                                    ) {
+                                        Text(text = option)
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         modifier = Modifier
@@ -964,15 +1097,53 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         onValueChange = { partSku = it; originalPart.sku = it },
                         label = { Text("Supplier SKU") }
                     )
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .fillMaxWidth(),
-                        singleLine = true,
-                        value = partSupplier,
-                        onValueChange = { partSupplier = it; originalPart.supplier = it },
-                        label = { Text("Supplier") }
-                    )
+
+                    var supplierMenuExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        supplierMenuExpanded,
+                        onExpandedChange = { supplierMenuExpanded = it }) {
+                        OutlinedTextField(
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .menuAnchor() // Needed or dropdown will not show
+                                .fillMaxWidth(),
+                            singleLine = true,
+                            // colors = ExposedDropdownMenuDefaults.textFieldColors(),
+                            value = partSupplier,
+                            onValueChange = { partSupplier = it; originalPart.supplier = it },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = supplierMenuExpanded)
+                            },
+                            label = { Text("Supplier") }
+                        )
+                        // filter options based on text field value (i.e. crude autocomplete)
+                        val filterOpts = state.supplierOptions.filter {
+                            it.contains(
+                                partSupplier,
+                                ignoreCase = true
+                            )
+                        }
+                        if (filterOpts.isNotEmpty()) {
+                            ExposedDropdownMenu(
+                                expanded = supplierMenuExpanded,
+                                onDismissRequest = { supplierMenuExpanded = false },
+                                modifier = Modifier.heightIn(max = 200.dp)
+                            ) {
+                                filterOpts.forEach { option ->
+                                    DropdownMenuItem(
+                                        onClick = {
+                                            partSupplier = option
+                                            originalPart.supplier = option
+                                            supplierMenuExpanded = false
+                                        }
+                                    ) {
+                                        Text(text = option)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                 } else {
                     Text(
                         "Last updated on ${partUpdated.toString()}",
@@ -1033,7 +1204,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         )
                     }
                     Text(
-                        "Suppler",
+                        "Supplier",
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(8.dp, 8.dp, 8.dp, 0.dp)
                     )
@@ -1044,7 +1215,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         )
                     }
                     Text(
-                        "Suppler SKU",
+                        "Supplier SKU",
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(8.dp, 8.dp, 8.dp, 0.dp)
                     )
@@ -1160,6 +1331,60 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
             }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
+    Log.i(TAG, "Settings screen")
+    val context = LocalContext.current;
+    val scope = rememberCoroutineScope()
+    val snackbarState = remember { SnackbarHostState() }
+    var defaultSupplier by remember { mutableStateOf(state.settings.defaultSupplier) };
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarState) },
+        topBar = {
+            TopAppBar(
+                modifier = Modifier.shadow(20.dp),
+                title = {
+                    Text("Settings")
+                },
+                navigationIcon =
+                    {
+                        IconButton(onClick = {
+                            scope.launch {
+                                state.settings.defaultSupplier = defaultSupplier;
+                                state.saveSettings(context.applicationContext);
+                                nav.navigateUp();
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
+                    },
+            )
+        },
+        content = {
+            Column(
+                modifier = Modifier
+                    .padding(it)
+                    .fillMaxSize()
+            ) {
+                OutlinedTextField(
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .fillMaxWidth(),
+                    value = defaultSupplier,
+                    onValueChange = { defaultSupplier = it; },
+                    singleLine = true,
+                    label = { Text("Default Supplier") }
+                )
+            }
+        },
+    )
+
 }
 //
 //

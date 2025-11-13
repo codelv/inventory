@@ -1,0 +1,3 @@
+- Fix scanning from Digikey invoices
+- Add setting page to set default supplier
+- Make part supplier and manufacturer inputs editable dropdowns

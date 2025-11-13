@@ -9,6 +9,8 @@ import androidx.room.*
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -17,7 +19,6 @@ import java.io.OutputStream
 import java.io.InputStream
 import java.net.URLEncoder
 import java.util.*
-import java.util.concurrent.Callable
 import kotlin.math.max
 
 val USER_AGENTS = listOf(
@@ -594,6 +595,12 @@ interface PartManager {
 
     @Query("SELECT EXISTS(SELECT * FROM parts WHERE id = :id)")
     suspend fun withIdExists(id: Int): Boolean
+
+    @Query("SELECT DISTINCT supplier FROM parts ORDER BY supplier")
+    suspend fun distinctSuppliers(): List<String>
+
+    @Query("SELECT DISTINCT manufacturer FROM parts ORDER BY manufacturer")
+    suspend fun distinctManufacturers(): List<String>
 }
 
 @Dao
@@ -719,6 +726,10 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
     var parts: MutableList<Part> = mutableStateListOf();
     var scans: MutableList<Scan> = mutableStateListOf();
     var scanOptions: ScanOptions = ScanOptions();
+    var supplierOptions: MutableList<String> = mutableStateListOf();
+    var manufacturerOptions: MutableList<String> = mutableStateListOf();
+    var settings: Settings = Settings();
+
 
     init {
         scanOptions
@@ -737,9 +748,25 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
         load()
     }
 
+    suspend fun loadOptions() {
+        supplierOptions.clear()
+        supplierOptions.addAll(database.parts().distinctSuppliers().filter{ it.isNotBlank() })
+        Log.d("DB", "Distinct suppliers: ${supplierOptions}")
+        listOf("Arrow", "Digikey", "LCSC", "Mouser").forEach { supplier ->
+            if (supplierOptions.find{it.contains(supplier, ignoreCase=true)} == null) {
+                supplierOptions.add(supplier);
+            }
+        }
+
+        manufacturerOptions.clear()
+        manufacturerOptions.addAll(database.parts().distinctManufacturers().filter{ it.isNotBlank() })
+        Log.d("DB", "Distinct manufacturers: ${manufacturerOptions}")
+    }
+
     suspend fun load() {
         parts.addAll(database.parts().all())
         scans.addAll(database.scans().all())
+        loadOptions()
     }
 
     suspend fun addScan(scan: Scan): Boolean {
@@ -807,4 +834,16 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
     suspend fun importDb(context: Context, stream: InputStream): Long {
         return database.importDb(context, stream);
     }
+
+    suspend fun loadSettings(context: Context) {
+        this.settings = context.dataStore.data.first();
+        Log.d("DB", "Loaded settings ${this.settings}")
+    }
+
+    suspend fun saveSettings(context: Context) {
+        Log.d("DB", "Update settings ${this.settings}")
+        context.dataStore.updateData { this.settings };
+        Log.d("DB", "Save settings ${context.dataStore.data.first()}")
+    }
+
 }

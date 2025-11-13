@@ -3,6 +3,7 @@ agp = "8.13.1"
 kotlin = "2.0.21"
 ksp = "2.0.21-1.0.26"
 coreKtx = "1.13.1"
+json = "1.7.3"
 junit = "4.13.2"
 junitVersion = "1.2.1"
 espressoCore = "3.6.1"
@@ -17,6 +18,7 @@ coil = "3.0.0-rc02"
 accompanist = "0.32.0"
 zxingEmbedded = "4.3.0"
 zxing = "3.5.3"
+foundationLayout = "1.9.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -44,6 +46,7 @@ androidx-room-gradle-plugin = {group = "androidx.room", name = "room-gradle-plug
 androidx-room-compiler = {group = "androidx.room", name = "room-compiler", version.ref = "room"}
 androidx-room-ktx = {group = "androidx.room", name = "room-ktx", version.ref = "room"}
 
+kotlinx-serialization-json = {group ="org.jetbrains.kotlinx", name="kotlinx-serialization-json", version.ref = "json"}
 
 com-google-accompanist = {group = "com.google.accompanist", name="accompanist-permissions", version.ref="accompanist"}
 
@@ -55,9 +58,9 @@ com-journeyapps = {group = "com.journeyapps", name="zxing-android-embedded", ver
 com-google-zxing = {group = "com.google.zxing", name="core", version.ref="zxing"}
 org-jsoup = {group = "org.jsoup", name = "jsoup", version.ref = "jsoup"}
 
-
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 jetbrains-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 com-google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+jetbrains-kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin"}
