@@ -77,6 +77,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -158,14 +159,18 @@ fun Main(state: AppViewModel) {
             SettingsScreen(nav, state)
         }
         composable(
-            "edit-part?id={id}",
-            arguments = listOf(navArgument("id") { defaultValue = 0 })
+            "edit-part?id={id}&import={import}",
+            arguments = listOf(
+                navArgument("id") { defaultValue = 0 },
+                navArgument("import") { defaultValue = 0 }
+            )
         ) {
             val partId = it.arguments?.getInt("id");
-            Log.i(TAG, "Navigate to edit-part?id=${partId}")
+            val autoImport = it.arguments?.getInt("import");
+            Log.i(TAG, "Navigate to edit-part?id=${partId}&import=${autoImport}")
             val savedPart = state.parts.find { it.id == partId };
             var part = if (savedPart != null) savedPart else Part(id = 0)
-            PartEditorScreen(nav, state, part)
+            PartEditorScreen(nav, state, part,  autoImport == 1)
         }
     }
 }
@@ -230,7 +235,7 @@ fun ScansScreen(nav: NavHostController, state: AppViewModel) {
                                 val savedPart = state.parts.find { it.mpn == part.mpn };
                                 if (savedPart == null) {
                                     state.addPart(part)
-                                    nav.navigate("edit-part?id=${part.id}")
+                                    nav.navigate("edit-part?id=${part.id}&import=1")
                                 } else {
                                     nav.navigate("edit-part?id=${savedPart.id}")
                                 }
@@ -351,13 +356,28 @@ fun search(parts: List<Part>, query: String, ignoreCase: Boolean = true): List<P
 fun PartsScreen(nav: NavHostController, state: AppViewModel) {
     val context = LocalContext.current;
     val snackbarState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    var searchText by remember { mutableStateOf("") }
-    var showSearch by remember { mutableStateOf(false) }
-    val filteredParts = search(state.parts, searchText)
     val cameraPermissionState = rememberPermissionState(
         android.Manifest.permission.CAMERA
     )
+    val scope = rememberCoroutineScope()
+    var searchText by remember { mutableStateOf("") }
+    var sortOrder by remember { mutableStateOf(state.settings.defaultSort) }
+    var showSearch by remember { mutableStateOf(false) }
+
+    var filteredParts = search(state.parts, searchText)
+    if (sortOrder.isNotBlank()) {
+        // These must match values in the sortOptions list
+        filteredParts = when (sortOrder) {
+            "mpn" -> filteredParts.sortedBy { part -> part.mpn }
+            "-mpn" -> filteredParts.sortedByDescending { part -> part.mpn }
+            "created" -> filteredParts.sortedBy { part -> part.created }
+            "-created" -> filteredParts.sortedByDescending { part -> part.created }
+            "updated" -> filteredParts.sortedBy { part -> part.updated }
+            "-updated" -> filteredParts.sortedByDescending { part -> part.updated }
+            else -> filteredParts
+        }
+    }
+
     val scanLauncher = rememberLauncherForActivityResult(
         contract = ScanContract(),
         onResult = { result ->
@@ -371,7 +391,7 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
                     if (existingPart == null) {
                         state.addPart(part);
                         snackbarState.showSnackbar(message = "Scanned new part ${part.mpn}")
-                        nav.navigate("edit-part?id=${part.id}")
+                        nav.navigate("edit-part?id=${part.id}&import=1")
                     } else {
                         snackbarState.showSnackbar(message = "Opening part ${part.mpn}")
                         nav.navigate("edit-part?id=${existingPart.id}")
@@ -756,11 +776,12 @@ fun ConfirmRemoveDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: Part) {
+fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: Part,  autoImport: Boolean) {
     Log.i(TAG, "Editing part ${originalPart}")
     val context = LocalContext.current;
     val scope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
+
     var partId by remember { mutableStateOf(originalPart.id) };
     var partDesc by remember { mutableStateOf(originalPart.description) };
     var partManufacturer by remember { mutableStateOf(originalPart.manufacturer) };
@@ -779,6 +800,71 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
     var partUpdated by remember { mutableStateOf(originalPart.updated) };
     var editMode by remember { mutableStateOf(false) }
     var editing = partId == 0 || editMode;
+
+    val importPartData: () -> Unit = {
+        scope.launch {
+            if (originalPart.supplier.isBlank()) {
+                originalPart.supplier = state.settings.defaultSupplier;
+                partSupplier = state.settings.defaultSupplier;
+            }
+            when (originalPart.importFromSupplier()) {
+                ImportResult.Success -> {
+                    // Force update
+                    partImage = originalPart.pictureUrl
+                    partDatasheet = originalPart.datasheetUrl
+                    partDesc = originalPart.description
+                    partManufacturer = originalPart.manufacturer
+                    partUpdated = originalPart.updated
+
+                    // If import is pressed before save
+                    var msg = "Imported!"
+                    if (partId == 0) {
+                        if (state.addPart(originalPart)) {
+                            partId = originalPart.id
+                        } else {
+                            msg = "A part with this MPN already exists!"
+                        }
+                    } else {
+                        state.savePart(originalPart);
+                    }
+                    snackbarState.showSnackbar(msg)
+                }
+
+                ImportResult.NoData -> {
+                    snackbarState.showSnackbar("No data was imported.")
+                }
+
+                ImportResult.MultipleResults -> {
+                    val r = snackbarState.showSnackbar(
+                        "No exact part match found. Try adding an SKU",
+                        actionLabel = "Search supplier website"
+                    )
+                    when (r) {
+                        SnackbarResult.ActionPerformed -> {
+                            try {
+                                val browserIntent =
+                                    Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse(originalPart.supplierUrl())
+                                    )
+                                context.startActivity(browserIntent)
+                            } catch (e: Exception) {
+                                scope.launch {
+                                    snackbarState.showSnackbar("Search url is invalid")
+                                }
+                            }
+                        }
+
+                        SnackbarResult.Dismissed -> {}
+                    }
+                }
+
+                else -> {
+                    snackbarState.showSnackbar("Failed to import.")
+                }
+            }
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarState) },
@@ -819,70 +905,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         if (partMpn.isNotBlank() || partSku.isNotBlank()) {
                             DropdownMenuItem(
                                 text = { Text("Import from supplier") },
-                                onClick = {
-                                    scope.launch {
-                                        if (originalPart.supplier.isBlank()) {
-                                            originalPart.supplier = state.settings.defaultSupplier;
-                                            partSupplier = state.settings.defaultSupplier;
-                                        }
-                                        when (originalPart.importFromSupplier()) {
-                                            ImportResult.Success -> {
-                                                // Force update
-                                                partImage = originalPart.pictureUrl
-                                                partDatasheet = originalPart.datasheetUrl
-                                                partDesc = originalPart.description
-                                                partManufacturer = originalPart.manufacturer
-                                                partUpdated = originalPart.updated
-
-                                                // If import is pressed before save
-                                                var msg = "Imported!"
-                                                if (partId == 0) {
-                                                    if (state.addPart(originalPart)) {
-                                                        partId = originalPart.id
-                                                    } else {
-                                                        msg = "A part with this MPN already exists!"
-                                                    }
-                                                } else {
-                                                    state.savePart(originalPart);
-                                                }
-                                                snackbarState.showSnackbar(msg)
-                                            }
-
-                                            ImportResult.NoData -> {
-                                                snackbarState.showSnackbar("No data was imported.")
-                                            }
-
-                                            ImportResult.MultipleResults -> {
-                                                val r = snackbarState.showSnackbar(
-                                                    "No exact part match found. Try adding an SKU",
-                                                    actionLabel = "Search supplier website"
-                                                )
-                                                when (r) {
-                                                    SnackbarResult.ActionPerformed -> {
-                                                        try {
-                                                            val browserIntent =
-                                                                Intent(
-                                                                    Intent.ACTION_VIEW,
-                                                                    Uri.parse(originalPart.supplierUrl())
-                                                                )
-                                                            context.startActivity(browserIntent)
-                                                        } catch (e: Exception) {
-                                                            scope.launch {
-                                                                snackbarState.showSnackbar("Search url is invalid")
-                                                            }
-                                                        }
-                                                    }
-
-                                                    SnackbarResult.Dismissed -> {}
-                                                }
-                                            }
-
-                                            else -> {
-                                                snackbarState.showSnackbar("Failed to import.")
-                                            }
-                                        }
-                                    }
-                                },
+                                onClick = { importPartData() },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Filled.SystemUpdateAlt,
@@ -1331,6 +1354,14 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
             }
         }
     )
+
+    // Auto import data if a new part is scanned
+    if (autoImport) {
+        LaunchedEffect(autoImport) {
+            snackbarState.showSnackbar("Importing part data...")
+            importPartData();
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1341,6 +1372,16 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
     val scope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
     var defaultSupplier by remember { mutableStateOf(state.settings.defaultSupplier) };
+    var defaultSort by remember { mutableStateOf(state.settings.defaultSort) };
+    val sortOptions = mapOf(
+        "" to "Default",
+        "mpn" to "MPN asc",
+        "-mpn" to "MPN desc",
+        "created" to "Created asc",
+        "-created" to "Created desc",
+        "updated" to "Updated asc",
+        "-updated" to "Updated desc",
+    )
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarState) },
         topBar = {
@@ -1354,6 +1395,7 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
                         IconButton(onClick = {
                             scope.launch {
                                 state.settings.defaultSupplier = defaultSupplier;
+                                state.settings.defaultSort = defaultSort;
                                 state.saveSettings(context.applicationContext);
                                 nav.navigateUp();
                             }
@@ -1381,6 +1423,42 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
                     singleLine = true,
                     label = { Text("Default Supplier") }
                 )
+
+                var sortMenuExpanded by remember { mutableStateOf(false) }
+                ExposedDropdownMenuBox(
+                    sortMenuExpanded,
+                    onExpandedChange = { sortMenuExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .menuAnchor() // Needed or dropdown will not show
+                            .fillMaxWidth(),
+                        singleLine = true,
+                        readOnly = true,
+                        value = sortOptions.getOrDefault(defaultSort, "Default"),
+                        onValueChange = {},
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortMenuExpanded)
+                        },
+                        label = { Text("Default sort order") }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = sortMenuExpanded,
+                        onDismissRequest = { sortMenuExpanded = false },
+                    ) {
+                        sortOptions.keys.forEach { k ->
+                            DropdownMenuItem(
+                                onClick = {
+                                    defaultSort = k
+                                    sortMenuExpanded = false
+                                }
+                            ) {
+                                Text(text = sortOptions[k]!!)
+                            }
+                        }
+                    }
+                }
             }
         },
     )

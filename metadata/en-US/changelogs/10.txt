@@ -1,0 +1,2 @@
+- Add part sort setting
+- Auto import data for newly added part

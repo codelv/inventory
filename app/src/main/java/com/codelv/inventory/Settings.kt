@@ -14,7 +14,8 @@ import java.io.OutputStream
 
 @Serializable
 data class Settings(
-    var defaultSupplier: String = ""
+    var defaultSupplier: String = "",
+    var defaultSort: String = ""
 )
 
 object SettingsSerializer : Serializer<Settings> {
