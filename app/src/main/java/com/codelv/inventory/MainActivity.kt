@@ -78,6 +78,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -116,18 +117,18 @@ import com.journeyapps.barcodescanner.ScanContract
 import kotlinx.coroutines.launch
 
 
-val TAG = "MainActivity";
+val TAG = "MainActivity"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         var state = AppViewModel(database = (application as App).db)
         state.viewModelScope.launch {
-            state.load();
-            state.loadSettings(context = applicationContext);
+            state.loadSettings(context = applicationContext)
+            state.load()
         }
 
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         setContent {
             AppTheme {
                 // A surface container using the 'background' color from the theme
@@ -165,10 +166,10 @@ fun Main(state: AppViewModel) {
                 navArgument("import") { defaultValue = 0 }
             )
         ) {
-            val partId = it.arguments?.getInt("id");
-            val autoImport = it.arguments?.getInt("import");
+            val partId = it.arguments?.getInt("id")
+            val autoImport = it.arguments?.getInt("import")
             Log.i(TAG, "Navigate to edit-part?id=${partId}&import=${autoImport}")
-            val savedPart = state.parts.find { it.id == partId };
+            val savedPart = state.parts.find { it.id == partId }
             var part = if (savedPart != null) savedPart else Part(id = 0)
             PartEditorScreen(nav, state, part,  autoImport == 1)
         }
@@ -209,7 +210,7 @@ fun ScansScreen(nav: NavHostController, state: AppViewModel) {
             ) {
                 ScanList(state.scans, { scan ->
                     scope.launch {
-                        selectedScan = scan;
+                        selectedScan = scan
                         scaffoldState.bottomSheetState.expand()
                     }
                 })
@@ -227,12 +228,12 @@ fun ScansScreen(nav: NavHostController, state: AppViewModel) {
                 SelectionContainer {
                     Text(selectedScan.value, modifier = Modifier.padding(0.dp, 8.dp))
                 }
-                var part = selectedScan.part;
+                var part = selectedScan.part
                 if (part != null) {
                     Button(
                         onClick = {
                             scope.launch {
-                                val savedPart = state.parts.find { it.mpn == part.mpn };
+                                val savedPart = state.parts.find { it.mpn == part.mpn }
                                 if (savedPart == null) {
                                     state.addPart(part)
                                     nav.navigate("edit-part?id=${part.id}&import=1")
@@ -282,7 +283,7 @@ fun ScanList(scans: List<Scan>, onScanClicked: (scan: Scan) -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
 
             ) {
-                var valid = scan.isValid();
+                var valid = scan.isValid()
 
                 Icon(
                     modifier = Modifier
@@ -354,20 +355,20 @@ fun search(parts: List<Part>, query: String, ignoreCase: Boolean = true): List<P
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun PartsScreen(nav: NavHostController, state: AppViewModel) {
-    val context = LocalContext.current;
+    val context = LocalContext.current
     val snackbarState = remember { SnackbarHostState() }
     val cameraPermissionState = rememberPermissionState(
         android.Manifest.permission.CAMERA
     )
     val scope = rememberCoroutineScope()
     var searchText by remember { mutableStateOf("") }
-    var sortOrder by remember { mutableStateOf(state.settings.defaultSort) }
+    val settings by state.settings.collectAsState()
     var showSearch by remember { mutableStateOf(false) }
 
     var filteredParts = search(state.parts, searchText)
-    if (sortOrder.isNotBlank()) {
+    if (settings.defaultSort.isNotBlank()) {
         // These must match values in the sortOptions list
-        filteredParts = when (sortOrder) {
+        filteredParts = when (settings.defaultSort) {
             "mpn" -> filteredParts.sortedBy { part -> part.mpn }
             "-mpn" -> filteredParts.sortedByDescending { part -> part.mpn }
             "created" -> filteredParts.sortedBy { part -> part.created }
@@ -384,12 +385,12 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
             Log.i(TAG, "scanned code: ${result.contents}")
             scope.launch {
                 var scan = Scan(id = state.scans.size + 1, value = result.contents)
-                state.addScan(scan);
-                var part = scan.part;
+                state.addScan(scan)
+                var part = scan.part
                 if (part != null && part.mpn.length > 0) {
-                    val existingPart = state.parts.find { it.mpn == part.mpn };
+                    val existingPart = state.parts.find { it.mpn == part.mpn }
                     if (existingPart == null) {
-                        state.addPart(part);
+                        state.addPart(part)
                         snackbarState.showSnackbar(message = "Scanned new part ${part.mpn}")
                         nav.navigate("edit-part?id=${part.id}&import=1")
                     } else {
@@ -406,7 +407,7 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.sqlite3")
     ) { mediaPath ->
-        Log.d("Export", "Media path is ${mediaPath}");
+        Log.d("Export", "Media path is ${mediaPath}")
         if (mediaPath != null) {
             context.contentResolver.openOutputStream(mediaPath, "wt")?.use { stream ->
                 if (state.exportDb(stream) > 0) {
@@ -422,7 +423,7 @@ fun PartsScreen(nav: NavHostController, state: AppViewModel) {
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { mediaPath ->
-        Log.d("Import", "Media path is ${mediaPath}");
+        Log.d("Import", "Media path is ${mediaPath}")
         if (mediaPath != null) {
             scope.launch {
                 context.contentResolver.openInputStream(mediaPath)?.use { stream ->
@@ -677,7 +678,7 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
                                 CachePolicy.ENABLED
                             ).httpHeaders(
                                 NetworkHeaders.Builder().add("User-Agent", userAgent).build()
-                            );
+                            )
                     AsyncImage(
                         model = req.build(),
                         contentDescription = null,
@@ -778,34 +779,34 @@ fun ConfirmRemoveDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
 @Composable
 fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: Part,  autoImport: Boolean) {
     Log.i(TAG, "Editing part ${originalPart}")
-    val context = LocalContext.current;
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
 
-    var partId by remember { mutableStateOf(originalPart.id) };
-    var partDesc by remember { mutableStateOf(originalPart.description) };
-    var partManufacturer by remember { mutableStateOf(originalPart.manufacturer) };
-    var partLocation by remember { mutableStateOf(originalPart.location) };
+    var partId by remember { mutableStateOf(originalPart.id) }
+    var partDesc by remember { mutableStateOf(originalPart.description) }
+    var partManufacturer by remember { mutableStateOf(originalPart.manufacturer) }
+    var partLocation by remember { mutableStateOf(originalPart.location) }
 
-    var partSku by remember { mutableStateOf(originalPart.sku) };
-    var partMpn by remember { mutableStateOf(originalPart.mpn) };
-    var partSupplier by remember { mutableStateOf(originalPart.supplier) };
+    var partSku by remember { mutableStateOf(originalPart.sku) }
+    var partMpn by remember { mutableStateOf(originalPart.mpn) }
+    var partSupplier by remember { mutableStateOf(originalPart.supplier) }
     var partSupplierUrl by remember { mutableStateOf(originalPart.supplierUrl()) }
-    var partNumOrdered by remember { mutableStateOf(originalPart.num_ordered) };
-    var partNumInStock by remember { mutableStateOf(originalPart.num_in_stock) };
-    var partUnitPrice by remember { mutableStateOf(originalPart.unit_price) };
+    var partNumOrdered by remember { mutableStateOf(originalPart.num_ordered) }
+    var partNumInStock by remember { mutableStateOf(originalPart.num_in_stock) }
+    var partUnitPrice by remember { mutableStateOf(originalPart.unit_price) }
 
-    var partDatasheet by remember { mutableStateOf(originalPart.datasheetUrl) };
-    var partImage by remember { mutableStateOf(originalPart.pictureUrl) };
-    var partUpdated by remember { mutableStateOf(originalPart.updated) };
+    var partDatasheet by remember { mutableStateOf(originalPart.datasheetUrl) }
+    var partImage by remember { mutableStateOf(originalPart.pictureUrl) }
+    var partUpdated by remember { mutableStateOf(originalPart.updated) }
     var editMode by remember { mutableStateOf(false) }
-    var editing = partId == 0 || editMode;
+    var editing = partId == 0 || editMode
 
     val importPartData: () -> Unit = {
         scope.launch {
             if (originalPart.supplier.isBlank()) {
-                originalPart.supplier = state.settings.defaultSupplier;
-                partSupplier = state.settings.defaultSupplier;
+                originalPart.supplier = state.settings.value.defaultSupplier
+                partSupplier = state.settings.value.defaultSupplier
             }
             when (originalPart.importFromSupplier()) {
                 ImportResult.Success -> {
@@ -825,7 +826,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                             msg = "A part with this MPN already exists!"
                         }
                     } else {
-                        state.savePart(originalPart);
+                        state.savePart(originalPart)
                     }
                     snackbarState.showSnackbar(msg)
                 }
@@ -891,7 +892,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     },
                 actions = {
                     var expanded by remember { mutableStateOf(false) }
-                    var showRemoveDialog by remember { mutableStateOf(false) };
+                    var showRemoveDialog by remember { mutableStateOf(false) }
                     IconButton(onClick = { expanded = true }) {
                         Icon(
                             imageVector = Icons.Filled.MoreVert,
@@ -962,8 +963,8 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                             var msg = "Part saved!"
                             // Set default supplier if none was set
                             if (originalPart.supplier.isBlank()) {
-                                originalPart.supplier = state.settings.defaultSupplier;
-                                partSupplier = state.settings.defaultSupplier;
+                                originalPart.supplier = state.settings.value.defaultSupplier
+                                partSupplier = state.settings.value.defaultSupplier
                             }
                             if (partId == 0) {
                                 if (state.addPart(originalPart)) {
@@ -974,7 +975,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                 }
 
                             } else {
-                                state.savePart(originalPart);
+                                state.savePart(originalPart)
                             }
                             snackbarState.showSnackbar(msg)
                         }
@@ -1169,7 +1170,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
 
                 } else {
                     Text(
-                        "Last updated on ${partUpdated.toString()}",
+                        "Last updated on $partUpdated",
                         fontWeight = FontWeight.Light,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(8.dp, 4.dp)
@@ -1256,12 +1257,12 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     value = partNumOrdered.toString(),
                     onValueChange = {
                         try {
-                            val v = Integer.parseUnsignedInt(it);
-                            partNumOrdered = v;
+                            val v = Integer.parseUnsignedInt(it)
+                            partNumOrdered = v
                             originalPart.num_ordered = v
                         } catch (e: Exception) {
-                            Log.d(TAG, e.toString());
-                            partNumOrdered = 0;
+                            Log.d(TAG, e.toString())
+                            partNumOrdered = 0
                             originalPart.num_ordered = 0
                         }
                     },
@@ -1278,12 +1279,12 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     value = partNumInStock.toString(),
                     onValueChange = {
                         try {
-                            val v = Integer.parseUnsignedInt(it);
-                            partNumInStock = v;
+                            val v = Integer.parseUnsignedInt(it)
+                            partNumInStock = v
                             originalPart.num_in_stock = v
                         } catch (e: Exception) {
-                            Log.d(TAG, e.toString());
-                            partNumInStock = 0;
+                            Log.d(TAG, e.toString())
+                            partNumInStock = 0
                             originalPart.num_in_stock = 0
                         }
                     },
@@ -1310,11 +1311,11 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         value = partUnitPrice.toString(),
                         onValueChange = {
                             try {
-                                val v = it.toDouble();
-                                partUnitPrice = v;
+                                val v = it.toDouble()
+                                partUnitPrice = v
                                 originalPart.unit_price = v
                             } catch (e: Exception) {
-                                Log.d(TAG, e.toString());
+                                Log.d(TAG, e.toString())
                                 partUnitPrice = 0.0
                                 originalPart.unit_price = 0.0
                             }
@@ -1346,7 +1347,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     )
                 }
                 Text(
-                    "Created on ${originalPart.created.toString()}",
+                    "Created on ${originalPart.created}",
                     fontWeight = FontWeight.Light,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(8.dp, 4.dp)
@@ -1359,7 +1360,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
     if (autoImport) {
         LaunchedEffect(autoImport) {
             snackbarState.showSnackbar("Importing part data...")
-            importPartData();
+            importPartData()
         }
     }
 }
@@ -1368,11 +1369,10 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
 @Composable
 fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
     Log.i(TAG, "Settings screen")
-    val context = LocalContext.current;
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
-    var defaultSupplier by remember { mutableStateOf(state.settings.defaultSupplier) };
-    var defaultSort by remember { mutableStateOf(state.settings.defaultSort) };
+    val settings by state.settings.collectAsState()
     val sortOptions = mapOf(
         "" to "Default",
         "mpn" to "MPN asc",
@@ -1394,10 +1394,8 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
                     {
                         IconButton(onClick = {
                             scope.launch {
-                                state.settings.defaultSupplier = defaultSupplier;
-                                state.settings.defaultSort = defaultSort;
-                                state.saveSettings(context.applicationContext);
-                                nav.navigateUp();
+                                state.saveSettings(context.applicationContext)
+                                nav.navigateUp()
                             }
                         }) {
                             Icon(
@@ -1418,8 +1416,8 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
                     modifier = Modifier
                         .padding(8.dp)
                         .fillMaxWidth(),
-                    value = defaultSupplier,
-                    onValueChange = { defaultSupplier = it; },
+                    value = settings.defaultSupplier,
+                    onValueChange = { settings.defaultSupplier = it; },
                     singleLine = true,
                     label = { Text("Default Supplier") }
                 )
@@ -1436,7 +1434,7 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
                             .fillMaxWidth(),
                         singleLine = true,
                         readOnly = true,
-                        value = sortOptions.getOrDefault(defaultSort, "Default"),
+                        value = sortOptions.getOrDefault(settings.defaultSort, "Default"),
                         onValueChange = {},
                         trailingIcon = {
                             ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortMenuExpanded)
@@ -1450,7 +1448,7 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
                         sortOptions.keys.forEach { k ->
                             DropdownMenuItem(
                                 onClick = {
-                                    defaultSort = k
+                                    settings.defaultSort = k
                                     sortMenuExpanded = false
                                 }
                             ) {

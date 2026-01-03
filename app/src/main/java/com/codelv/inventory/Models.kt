@@ -2,13 +2,17 @@ package com.codelv.inventory
 
 import android.content.Context
 import android.util.Log
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.text.trimmedLength
 import androidx.lifecycle.ViewModel
 import androidx.room.*
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -98,7 +102,7 @@ val USER_AGENTS = listOf(
 var userAgent = USER_AGENTS.random()
 
 suspend fun fetch(url: String, retries: Int = 3): Document? {
-    var doc: Document? = null;
+    var doc: Document? = null
     Log.d("FETCH", "Fetching ${url}")
     withContext(Dispatchers.IO) {
         for (i in 0..max(1, retries))
@@ -113,7 +117,7 @@ suspend fun fetch(url: String, retries: Int = 3): Document? {
                 }
                 doc = req.get()
                 Log.d("FETCH", "OK!")
-                break;
+                break
             } catch (e: java.net.SocketTimeoutException) {
                 delay(1000)
                 userAgent = USER_AGENTS.random()
@@ -124,10 +128,10 @@ suspend fun fetch(url: String, retries: Int = 3): Document? {
                 Log.d("FETCH", "ERROR: ${e}, retry with new UA..")
             } catch (e: java.lang.Exception) {
                 Log.d("FETCH", "ERROR: ${e}")
-                break;
+                break
             }
     }
-    return doc;
+    return doc
 }
 
 fun cleanUrl(url: String): String {
@@ -206,12 +210,12 @@ data class Part(
     }
 
     suspend fun importFromMouser(overwrite: Boolean = false): ImportResult {
-        val tag = "Mouser";
-        val url = supplierUrl();
+        val tag = "Mouser"
+        val url = supplierUrl()
         if (url.isNotBlank()) {
             try {
-                var result: Boolean = false;
-                var doc = fetch(url);
+                var result: Boolean = false
+                var doc = fetch(url)
                 if (doc != null) {
                     if (doc.selectXpath("//body[@itemtype=\"http://schema.org/SearchResultsPage\"]")
                             .first() != null
@@ -226,7 +230,7 @@ data class Part(
                         if (img != null && img.hasAttr("content")) {
                             this.pictureUrl = cleanUrl(img.attr("content"))
                             Log.d(tag, "Imported picture url")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No picture found")
                         }
@@ -238,7 +242,7 @@ data class Part(
                         if (datasheet != null && datasheet.hasAttr("href")) {
                             this.datasheetUrl = cleanUrl(datasheet.attr("href"))
                             Log.d(tag, "Imported datasheet url")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No datasheet found")
                         }
@@ -251,7 +255,7 @@ data class Part(
                         if (mfg != null && mfg.hasText()) {
                             this.manufacturer = mfg.text().trim()
                             Log.d(tag, "Imported manufacturer")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No manufacturer found")
                         }
@@ -264,18 +268,18 @@ data class Part(
                         if (sku != null && sku.hasText()) {
                             this.sku = sku.text().trim()
                             Log.d(tag, "Imported supplier part number")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No supplier part number found")
                         }
                     }
 
                     if (description.trimmedLength() == 0 || overwrite) {
-                        val span = doc.selectXpath("//span[@id=\"spnDescription\"]").first();
+                        val span = doc.selectXpath("//span[@id=\"spnDescription\"]").first()
                         if (span != null && span.hasText()) {
                             this.description = span.text().trim()
                             Log.d(tag, "Imported description")
-                            result = true;
+                            result = true
                         }
                     }
                     return if (result) ImportResult.Success else ImportResult.NoData
@@ -288,12 +292,12 @@ data class Part(
     }
 
     suspend fun importFromDigikey(overwrite: Boolean = false): ImportResult {
-        val tag = "Digikey";
-        val url = supplierUrl();
+        val tag = "Digikey"
+        val url = supplierUrl()
         if (url.isNotBlank()) {
             try {
-                var result: Boolean = false;
-                var doc = fetch(url);
+                var result: Boolean = false
+                var doc = fetch(url)
                 if (doc != null) {
                     if (doc.selectXpath("//div[@data-testid=\"category-page\"]")
                             .first() != null
@@ -308,7 +312,7 @@ data class Part(
                         if (img != null && img.hasAttr("src")) {
                             this.pictureUrl = cleanUrl(img.attr("src"))
                             Log.d(tag, "Imported picture url")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No picture found")
                         }
@@ -320,7 +324,7 @@ data class Part(
                         if (datasheet != null && datasheet.hasAttr("href")) {
                             this.datasheetUrl = cleanUrl(datasheet.attr("href"))
                             Log.d(tag, "Imported datasheet url")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No datasheet found")
                         }
@@ -333,7 +337,7 @@ data class Part(
                         if (mfg != null && mfg.hasText()) {
                             this.manufacturer = mfg.text().trim()
                             Log.d(tag, "Imported manufacturer")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No manufacturer found")
                         }
@@ -344,8 +348,8 @@ data class Part(
                             if (div.hasText() && !div.text().startsWith("Detailed")) {
                                 this.description = div.text()
                                 Log.d(tag, "Imported description")
-                                result = true;
-                                break;
+                                result = true
+                                break
                             }
                         }
                     }
@@ -359,12 +363,12 @@ data class Part(
     }
 
     suspend fun importFromLCSC(overwrite: Boolean = false): ImportResult {
-        val tag = "LCSC";
-        val url = supplierUrl();
+        val tag = "LCSC"
+        val url = supplierUrl()
         if (url.isNotBlank()) {
             try {
-                var result: Boolean = false;
-                var doc = fetch(url);
+                var result: Boolean = false
+                var doc = fetch(url)
                 if (doc != null) {
                     if (doc.selectXpath("//div[@class=\"product-table\"]")
                             .first() != null
@@ -384,7 +388,7 @@ data class Part(
                         if (img != null && img.hasAttr("src")) {
                             this.pictureUrl = cleanUrl(img.attr("src"))
                             Log.d(tag, "Imported picture url")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No picture found")
                         }
@@ -402,7 +406,7 @@ data class Part(
                         if (datasheet != null && datasheet.hasAttr("href")) {
                             this.datasheetUrl = cleanUrl(datasheet.attr("href"))
                             Log.d(tag, "Imported datasheet url")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No datasheet found")
                         }
@@ -420,7 +424,7 @@ data class Part(
                         if (mfg != null && mfg.hasText()) {
                             this.manufacturer = mfg.text().trim()
                             Log.d(tag, "Imported manufacturer")
-                            result = true;
+                            result = true
                         } else {
                             Log.d(tag, "No manufacturer found")
                         }
@@ -438,7 +442,7 @@ data class Part(
                         if (desc != null && desc.hasText()) {
                             this.description = desc.text().trim()
                             Log.d(tag, "Imported description")
-                            result = true;
+                            result = true
                         }
                     }
                     return if (result) ImportResult.Success else ImportResult.NoData
@@ -461,11 +465,11 @@ data class Scan(
     @delegate:Ignore
     val part: Part? by lazy {
 
-        var result: Part? = null;
+        var result: Part? = null
         if ((value.startsWith("[)>\u001E06") || value.startsWith("0[)>\u001E06")) && value.length > 10) {
-            result = parseTrackingQrcode();
+            result = parseTrackingQrcode()
         } else if (value.startsWith("{") && value.length > 10 && value.endsWith("}")) {
-            result = parseJsonQrcode();
+            result = parseJsonQrcode()
         }
         result
     }
@@ -482,38 +486,38 @@ data class Scan(
     fun parseTrackingQrcode(): Part? {
         var entries = value.split(29.toChar())
         Log.d("Scan", "Entries ${entries}")
-        var part = Part(id = 0);
-        for ((i, p) in entries.withIndex()) {
+        var part = Part(id = 0)
+        for ((_, p) in entries.withIndex()) {
             if (p.startsWith("1P") && p.length > 2) {
                 part.mpn = p.substring(2) // MPN
             } else if (p.startsWith("Q") && p.length > 1) {
                 try {
                     // Remove the Q and any trailing unicode stuff
-                    val v = p.filter { it.isDigit() };
-                    val qty = Integer.parseUnsignedInt(v);
-                    part.num_in_stock = qty;
-                    part.num_ordered = qty;
+                    val v = p.filter { it.isDigit() }
+                    val qty = Integer.parseUnsignedInt(v)
+                    part.num_in_stock = qty
+                    part.num_ordered = qty
                 } catch (e: java.lang.NumberFormatException) {
                     // Pass
                 }
             } else if (p.startsWith("1K") && p.length > 2) {
-                part.order_number = p.substring(2);
+                part.order_number = p.substring(2)
             } else if (p.startsWith("P") && p.length > 1) {
-                part.sku = p.substring(1);
+                part.sku = p.substring(1)
             }
         }
         if (part.isValid()) {
-            return part;
+            return part
         }
         return null
     }
 
     fun parseJsonQrcode(): Part? {
-        var entries = value.substring(1, value.length - 1).split(",");
+        var entries = value.substring(1, value.length - 1).split(",")
         // Log.d("Scan", "Entries ${entries}")
-        var part = Part(id = 0);
-        for ((i, p) in entries.withIndex()) {
-            val entry = p.split(":");
+        var part = Part(id = 0)
+        for ((_, p) in entries.withIndex()) {
+            val entry = p.split(":")
             if (entry.size == 2) {
                 when (entry[0]) {
                     "pm" -> part.mpn = entry[1]
@@ -534,10 +538,10 @@ data class Scan(
         }
 
         if (part.isValid()) {
-            part.supplier = "LCSC";
-            return part;
+            part.supplier = "LCSC"
+            return part
         }
-        return null;
+        return null
     }
 }
 
@@ -654,7 +658,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "inventory.db"
                 )
                     .build()
-                Companion.instance = db
+                instance = db
 
                 db
             }
@@ -666,33 +670,33 @@ abstract class AppDatabase : RoomDatabase() {
     fun fullCheckpoint() {
         // When Android uses write ahead logging the database is empty
         // but instead has shm and wal files. This forces it to write out to the actual .db file
-        val db = instance!!.openHelper.writableDatabase;
+        val db = instance!!.openHelper.writableDatabase
         if (db.isWriteAheadLoggingEnabled) {
-            val cursor = db.query("PRAGMA wal_checkpoint(full)");
+            val cursor = db.query("PRAGMA wal_checkpoint(full)")
             cursor.close()
         }
     }
 
     fun exportDb(out: OutputStream): Long {
         if (instance == null) {
-            return -1;
+            return -1
         }
         try {
             // Create checkpoint before exporting
-            fullCheckpoint();
+            fullCheckpoint()
             val db = File(instance!!.openHelper.readableDatabase.path!!)
-            val data = db.readBytes();
+            val data = db.readBytes()
             out.write(data)
-            return data.size.toLong();
+            return data.size.toLong()
         } catch (e: Exception) {
             Log.e("ExportDb", "Failed to export: ${e}")
-            return -2;
+            return -2
         }
     }
 
     suspend fun importDb(context: Context, stream: InputStream): Long {
         if (instance == null) {
-            return -1;
+            return -1
         }
         try {
             var newDb = Room.databaseBuilder(
@@ -709,7 +713,7 @@ abstract class AppDatabase : RoomDatabase() {
             return (newParts.size + newScans.size).toLong()
         } catch (e: Exception) {
             Log.e(TAG, e.toString())
-            return -1;
+            return -1
         }
 
     }
@@ -718,13 +722,12 @@ abstract class AppDatabase : RoomDatabase() {
 }
 
 class AppViewModel(val database: AppDatabase) : ViewModel() {
-    var parts: MutableList<Part> = mutableStateListOf();
-    var scans: MutableList<Scan> = mutableStateListOf();
-    var scanOptions: ScanOptions = ScanOptions();
-    var supplierOptions: MutableList<String> = mutableStateListOf();
-    var manufacturerOptions: MutableList<String> = mutableStateListOf();
-    var settings: Settings = Settings();
-
+    var parts: MutableList<Part> = mutableStateListOf()
+    var scans: MutableList<Scan> = mutableStateListOf()
+    var scanOptions: ScanOptions = ScanOptions()
+    var supplierOptions: MutableList<String> = mutableStateListOf()
+    var manufacturerOptions: MutableList<String> = mutableStateListOf()
+    var settings: MutableStateFlow<Settings> = MutableStateFlow(Settings())
 
     init {
         scanOptions
@@ -749,7 +752,7 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
         Log.d("DB", "Distinct suppliers: ${supplierOptions}")
         listOf("Arrow", "Digikey", "LCSC", "Mouser").forEach { supplier ->
             if (supplierOptions.find{it.contains(supplier, ignoreCase=true)} == null) {
-                supplierOptions.add(supplier);
+                supplierOptions.add(supplier)
             }
         }
 
@@ -767,7 +770,7 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
     suspend fun addScan(scan: Scan): Boolean {
         if (!database.scans().withValueExists(scan.value)) {
             val id = database.scans().insert(scan)
-            scan.id = id.toInt();
+            scan.id = id.toInt()
             scans.add(0, scan)
             Log.d("DB", "Added scan ${scan}")
             return true
@@ -793,7 +796,7 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
     suspend fun addPart(part: Part): Boolean {
         if (!database.parts().withMpnExists(part.mpn)) {
             val id = database.parts().insert(part)
-            part.id = id.toInt();
+            part.id = id.toInt()
             parts.add(0, part)
             Log.d("DB", "Added part ${part}")
             return true
@@ -823,21 +826,21 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
     }
 
     fun exportDb(out: OutputStream): Long {
-        return database.exportDb(out);
+        return database.exportDb(out)
     }
 
     suspend fun importDb(context: Context, stream: InputStream): Long {
-        return database.importDb(context, stream);
+        return database.importDb(context, stream)
     }
 
     suspend fun loadSettings(context: Context) {
-        this.settings = context.dataStore.data.first();
-        Log.d("DB", "Loaded settings ${this.settings}")
+        this.settings.value = context.dataStore.data.first()
+        Log.d("DB", "Loaded settings ${this.settings.value}")
     }
 
     suspend fun saveSettings(context: Context) {
-        Log.d("DB", "Update settings ${this.settings}")
-        context.dataStore.updateData { this.settings };
+        Log.d("DB", "Update settings ${this.settings.value}")
+        context.dataStore.updateData { this.settings.value }
         Log.d("DB", "Save settings ${context.dataStore.data.first()}")
     }
 
