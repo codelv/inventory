@@ -1,5 +1,6 @@
 [versions]
-agp = "8.13.1"
+agp = "8.13.2"
+apache = "1.15.0"
 kotlin = "2.0.21"
 ksp = "2.0.21-1.0.26"
 coreKtx = "1.13.1"
@@ -53,10 +54,10 @@ com-google-accompanist = {group = "com.google.accompanist", name="accompanist-pe
 io-coil = {group = "io.coil-kt.coil3", name="coil-compose", version.ref="coil"}
 io-coil-network = {group = "io.coil-kt.coil3", name="coil-network-okhttp", version.ref="coil"}
 
-
 com-journeyapps = {group = "com.journeyapps", name="zxing-android-embedded", version.ref="zxingEmbedded"}
 com-google-zxing = {group = "com.google.zxing", name="core", version.ref="zxing"}
 org-jsoup = {group = "org.jsoup", name = "jsoup", version.ref = "jsoup"}
+org-apache-commons-text = { group = "org.apache.commons", name="commons-text", version.ref = "apache"}
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

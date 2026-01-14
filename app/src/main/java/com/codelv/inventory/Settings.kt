@@ -15,7 +15,8 @@ import java.io.OutputStream
 @Serializable
 data class Settings(
     var defaultSupplier: String = "",
-    var defaultSort: String = ""
+    var defaultSort: String = "",
+    var useWebview: Boolean = true
 )
 
 object SettingsSerializer : Serializer<Settings> {

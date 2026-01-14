@@ -2,19 +2,22 @@ package com.codelv.inventory
 
 import android.content.Context
 import android.util.Log
-import androidx.compose.runtime.MutableState
+import android.webkit.CookieManager
+import android.webkit.WebStorage
+import android.webkit.WebView
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.core.text.trimmedLength
 import androidx.lifecycle.ViewModel
 import androidx.room.*
+import com.codelv.inventory.suppliers.Digikey
+import com.codelv.inventory.suppliers.LCSC
+import com.codelv.inventory.suppliers.Mouser
+import com.codelv.inventory.suppliers.RS
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -99,7 +102,29 @@ val USER_AGENTS = listOf(
     "Mozilla/5.0 (Linux; Android 16; LM-X420) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.110 Mobile Safari/537.36",
     "Mozilla/5.0 (Linux; Android 16; LM-Q710(FGN)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.110 Mobile Safari/537.36",
 )
-var userAgent = USER_AGENTS.random()
+
+// If host contains any of these strings block it
+var BLOCKED_HOSTS = listOf(
+    "analytics-eagain.com",
+    "cookielaw.org",
+    "datadoghq",
+    "datadome",
+    "evgnet.com",
+    "facebook",
+    "go-mpulse.com",
+    "googleapis.com",
+    "googletagmanager",
+    "groupbycloud.com",
+    "jsdelivr.net",
+    "launchdarkley.com",
+    "liveperson.net",
+    "newrelic",
+    "px-cloud.net",
+    "qualtics.com",
+    "sift.com",
+)
+
+var USER_AGENT = USER_AGENTS.random()
 
 suspend fun fetch(url: String, retries: Int = 3): Document? {
     var doc: Document? = null
@@ -107,9 +132,11 @@ suspend fun fetch(url: String, retries: Int = 3): Document? {
     withContext(Dispatchers.IO) {
         for (i in 0..max(1, retries))
             try {
-                var req = Jsoup.connect(url).userAgent(userAgent).followRedirects(true)
+                var req = Jsoup.connect(url).userAgent(USER_AGENT).followRedirects(true)
+
                 if (url.contains("digikey.com")) {
-                    req = req.referrer("https://www.digikey.com").header("Accept-Language", "en-US,en")
+                    req = req.referrer("https://www.digikey.com")
+                        .header("Accept-Language", "en-US,en")
                 } else if (url.contains("mouser.com")) {
                     // TODO: Use device locale
                     req =
@@ -120,11 +147,11 @@ suspend fun fetch(url: String, retries: Int = 3): Document? {
                 break
             } catch (e: java.net.SocketTimeoutException) {
                 delay(1000)
-                userAgent = USER_AGENTS.random()
+                USER_AGENT = USER_AGENTS.random()
                 Log.d("FETCH", "ERROR: ${e}, retry with new UA..")
             } catch (e: org.jsoup.HttpStatusException) {
                 delay(1000)
-                userAgent = USER_AGENTS.random()
+                USER_AGENT = USER_AGENTS.random()
                 Log.d("FETCH", "ERROR: ${e}, retry with new UA..")
             } catch (e: java.lang.Exception) {
                 Log.d("FETCH", "ERROR: ${e}")
@@ -158,7 +185,101 @@ enum class ImportResult {
     Error,
     MultipleResults,
     NoData,
+    BotCheck,
 }
+
+// Basic interface
+open class DataSupplier(
+    var requiresJs: Boolean = false,
+    var requireStorage: Boolean = false,
+    var requireIndexDB: Boolean = false,
+) {
+
+
+    // Check if the provided name is this supplier
+    open fun matchesName(name: String): Boolean {
+        return false
+    }
+
+    // Import data for the part using the given page source.
+    // If the page source is empty fetch it (without using a webview or js)
+    // If ovewrite is True, re-import any data even if it is already populated
+    open suspend fun importPartData(part: Part, page: String?, overwrite: Boolean): ImportResult {
+        if (requiresJs && page.isNullOrBlank()) {
+            return ImportResult.Error
+        }
+        try {
+            val doc = if (page.isNullOrBlank()) fetch(searchPartUrl(part)) else Jsoup.parse(page)
+            if (doc == null) {
+                return ImportResult.Error
+            }
+            return importPartData(part, doc, overwrite)
+        } catch (e: java.lang.Exception) {
+            Log.e("Unable to load page", e.toString())
+            return ImportResult.Error
+        }
+    }
+
+    open suspend fun importPartData(part: Part, doc: Document, overwrite: Boolean): ImportResult {
+        return ImportResult.NoData
+    }
+
+    // Return the url used to lookup the product
+    open fun searchPartUrl(part: Part): String {
+        val k = URLEncoder.encode(if (part.sku.trimmedLength() > 2) part.sku else part.mpn, "utf-8")
+        if (k.isBlank()) return ""
+        return searchUrl(k)
+    }
+
+    // Return the url used to lookup the product
+    open fun searchUrl(q: String): String {
+        return ""
+    }
+
+    // Return the request headers needed for this site
+    // Some sites require certain headers or they will block the request
+    open fun requestHeaders(): Map<String, String> {
+        return mapOf()
+    }
+
+    open fun initWebView(view: WebView) {
+        view.settings.javaScriptEnabled = requiresJs
+        view.settings.domStorageEnabled = requireStorage
+        view.settings.databaseEnabled = requireIndexDB
+        view.settings.userAgentString = USER_AGENT
+        view.settings.setGeolocationEnabled(false)
+        Log.d("DataSupplier", "webview settings initialized")
+    }
+
+    open fun deinitWebView(view: WebView) {
+        // Clear all storage
+        WebStorage.getInstance().deleteAllData()
+        CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().flush()
+        view.clearCache(true)
+        view.clearFormData()
+        view.clearHistory()
+        view.clearSslPreferences()
+        Log.d("DataSupplier", "webview cache flushed")
+    }
+
+
+    // Return whether the url matches the product page
+    // This is used to determine if it should capture the page and use it to import part data
+    open fun isProductPage(url: String, content: String): Boolean {
+        return false
+    }
+}
+
+
+// Registry of supported data suppliers
+val DATA_SUPPLIERS = listOf<DataSupplier>(
+    Digikey(),
+    Mouser(),
+    LCSC(),
+    RS(),
+)
+
 
 @Entity(tableName = "parts")
 data class Part(
@@ -184,275 +305,11 @@ data class Part(
         return mpn.length > 0
     }
 
-    fun supplierUrl(): String {
-        val k = URLEncoder.encode(if (sku.trimmedLength() > 2) sku else mpn, "utf-8")
-        if (supplier.uppercase() == "LCSC") {
-            if (sku.isNotEmpty()) {
-                return "https://www.lcsc.com/product-detail/${k}.html"
-            }
-            return "https://www.lcsc.com/search?q=${k}"
-        } else if (supplier.lowercase() == "mouser") {
-            return "https://www.mouser.com/c/?q=${k}"
-        } else {
-            return "https://www.digikey.com/en/products/result?keywords=${k}"
-        }
+    // Lookup the data suppler from the part suppler name
+    fun dataSupplier(): DataSupplier? {
+        return DATA_SUPPLIERS.find { it.matchesName(supplier) }
     }
 
-    // Import image, datasheet, and description
-    suspend fun importFromSupplier(overwrite: Boolean = false): ImportResult {
-        if (supplier.uppercase() == "LCSC") {
-            return importFromLCSC()
-        } else if (supplier.lowercase() == "mouser") {
-            return importFromMouser()
-        } else {
-            return importFromDigikey()
-        }
-    }
-
-    suspend fun importFromMouser(overwrite: Boolean = false): ImportResult {
-        val tag = "Mouser"
-        val url = supplierUrl()
-        if (url.isNotBlank()) {
-            try {
-                var result: Boolean = false
-                var doc = fetch(url)
-                if (doc != null) {
-                    if (doc.selectXpath("//body[@itemtype=\"http://schema.org/SearchResultsPage\"]")
-                            .first() != null
-                    ) {
-                        return ImportResult.MultipleResults
-                    }
-
-                    if (pictureUrl.trimmedLength() == 0 || overwrite) {
-                        val img =
-                            doc.selectXpath("//meta[@property=\"og:image\"]")
-                                .first()
-                        if (img != null && img.hasAttr("content")) {
-                            this.pictureUrl = cleanUrl(img.attr("content"))
-                            Log.d(tag, "Imported picture url")
-                            result = true
-                        } else {
-                            Log.d(tag, "No picture found")
-                        }
-                    }
-
-                    if (datasheetUrl.trimmedLength() == 0 || overwrite) {
-                        val datasheet =
-                            doc.selectXpath("//a[@id=\"pdp-datasheet_0\"]").first()
-                        if (datasheet != null && datasheet.hasAttr("href")) {
-                            this.datasheetUrl = cleanUrl(datasheet.attr("href"))
-                            Log.d(tag, "Imported datasheet url")
-                            result = true
-                        } else {
-                            Log.d(tag, "No datasheet found")
-                        }
-                    }
-
-                    if (manufacturer.trimmedLength() == 0 || overwrite) {
-                        val mfg =
-                            doc.selectXpath("//a[@id=\"lnkManufacturerName\"]")
-                                .first()
-                        if (mfg != null && mfg.hasText()) {
-                            this.manufacturer = mfg.text().trim()
-                            Log.d(tag, "Imported manufacturer")
-                            result = true
-                        } else {
-                            Log.d(tag, "No manufacturer found")
-                        }
-                    }
-
-                    if (sku.trimmedLength() == 0 || overwrite) {
-                        val sku =
-                            doc.selectXpath("//span[@id=\"spnMouserPartNumFormattedForProdInfo\"]")
-                                .first()
-                        if (sku != null && sku.hasText()) {
-                            this.sku = sku.text().trim()
-                            Log.d(tag, "Imported supplier part number")
-                            result = true
-                        } else {
-                            Log.d(tag, "No supplier part number found")
-                        }
-                    }
-
-                    if (description.trimmedLength() == 0 || overwrite) {
-                        val span = doc.selectXpath("//span[@id=\"spnDescription\"]").first()
-                        if (span != null && span.hasText()) {
-                            this.description = span.text().trim()
-                            Log.d(tag, "Imported description")
-                            result = true
-                        }
-                    }
-                    return if (result) ImportResult.Success else ImportResult.NoData
-                }
-            } catch (e: java.lang.Exception) {
-                Log.e("Part", e.toString())
-            }
-        }
-        return ImportResult.Error
-    }
-
-    suspend fun importFromDigikey(overwrite: Boolean = false): ImportResult {
-        val tag = "Digikey"
-        val url = supplierUrl()
-        if (url.isNotBlank()) {
-            try {
-                var result: Boolean = false
-                var doc = fetch(url)
-                if (doc != null) {
-                    if (doc.selectXpath("//div[@data-testid=\"category-page\"]")
-                            .first() != null
-                    ) {
-                        return ImportResult.MultipleResults
-                    }
-
-                    if (pictureUrl.trimmedLength() == 0 || overwrite) {
-                        val img =
-                            doc.selectXpath("//*[@data-testid=\"carousel-main-image\"]//img")
-                                .first()
-                        if (img != null && img.hasAttr("src")) {
-                            this.pictureUrl = cleanUrl(img.attr("src"))
-                            Log.d(tag, "Imported picture url")
-                            result = true
-                        } else {
-                            Log.d(tag, "No picture found")
-                        }
-                    }
-
-                    if (datasheetUrl.trimmedLength() == 0 || overwrite) {
-                        val datasheet =
-                            doc.selectXpath("//a[@data-testid=\"datasheet-download\"]").first()
-                        if (datasheet != null && datasheet.hasAttr("href")) {
-                            this.datasheetUrl = cleanUrl(datasheet.attr("href"))
-                            Log.d(tag, "Imported datasheet url")
-                            result = true
-                        } else {
-                            Log.d(tag, "No datasheet found")
-                        }
-                    }
-
-                    if (manufacturer.trimmedLength() == 0 || overwrite) {
-                        val mfg =
-                            doc.selectXpath("//*[@data-testid=\"overview-manufacturer\"]//a")
-                                .first()
-                        if (mfg != null && mfg.hasText()) {
-                            this.manufacturer = mfg.text().trim()
-                            Log.d(tag, "Imported manufacturer")
-                            result = true
-                        } else {
-                            Log.d(tag, "No manufacturer found")
-                        }
-                    }
-
-                    if (description.trimmedLength() == 0 || overwrite) {
-                        for (div in doc.selectXpath("//*[@data-testid=\"detailed-description\"]/*/div")) {
-                            if (div.hasText() && !div.text().startsWith("Detailed")) {
-                                this.description = div.text()
-                                Log.d(tag, "Imported description")
-                                result = true
-                                break
-                            }
-                        }
-                    }
-                    return if (result) ImportResult.Success else ImportResult.NoData
-                }
-            } catch (e: java.lang.Exception) {
-                Log.e("Part", e.toString())
-            }
-        }
-        return ImportResult.Error
-    }
-
-    suspend fun importFromLCSC(overwrite: Boolean = false): ImportResult {
-        val tag = "LCSC"
-        val url = supplierUrl()
-        if (url.isNotBlank()) {
-            try {
-                var result: Boolean = false
-                var doc = fetch(url)
-                if (doc != null) {
-                    if (doc.selectXpath("//div[@class=\"product-table\"]")
-                            .first() != null
-                    ) {
-                        // TODO: May show only 1 result
-                        return ImportResult.MultipleResults
-                    }
-
-                    if (pictureUrl.trimmedLength() == 0 || overwrite) {
-                        var img =
-                            doc.selectXpath("//div[@class=\"asset\"]//img")
-                                .first()
-                        if (img == null) {
-
-
-                        }
-                        if (img != null && img.hasAttr("src")) {
-                            this.pictureUrl = cleanUrl(img.attr("src"))
-                            Log.d(tag, "Imported picture url")
-                            result = true
-                        } else {
-                            Log.d(tag, "No picture found")
-                        }
-                    }
-
-                    if (datasheetUrl.trimmedLength() == 0 || overwrite) {
-                        var datasheet =
-                            doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Datasheet\")]]//a")
-                                .first()
-                        if (datasheet == null) {
-                            datasheet =
-                                doc.selectXpath("//div[contains(text(), \"Datasheet:\")]/following-sibling::*/a")
-                                    .first()
-                        }
-                        if (datasheet != null && datasheet.hasAttr("href")) {
-                            this.datasheetUrl = cleanUrl(datasheet.attr("href"))
-                            Log.d(tag, "Imported datasheet url")
-                            result = true
-                        } else {
-                            Log.d(tag, "No datasheet found")
-                        }
-                    }
-
-                    if (manufacturer.trimmedLength() == 0 || overwrite) {
-                        var mfg =
-                            doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Manufacturer\")]]//a")
-                                .first()
-                        if (mfg == null) {
-                            mfg =
-                                doc.selectXpath("//div[contains(text(), \"Manufacturer:\")]/following-sibling::*/a")
-                                    .first()
-                        }
-                        if (mfg != null && mfg.hasText()) {
-                            this.manufacturer = mfg.text().trim()
-                            Log.d(tag, "Imported manufacturer")
-                            result = true
-                        } else {
-                            Log.d(tag, "No manufacturer found")
-                        }
-                    }
-
-                    if (description.trimmedLength() == 0 || overwrite) {
-                        var desc =
-                            doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Description\")]]//td")
-                                .last()
-                        if (desc == null) {
-                            desc =
-                                doc.selectXpath("//div[contains(text(), \"Description:\")]/following-sibling::*")
-                                    .first()
-                        }
-                        if (desc != null && desc.hasText()) {
-                            this.description = desc.text().trim()
-                            Log.d(tag, "Imported description")
-                            result = true
-                        }
-                    }
-                    return if (result) ImportResult.Success else ImportResult.NoData
-                }
-            } catch (e: java.lang.Exception) {
-                Log.e("Part", e.toString())
-            }
-        }
-        return ImportResult.Error
-    }
 }
 
 @Entity(tableName = "scans")
@@ -748,16 +605,17 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
 
     suspend fun loadOptions() {
         supplierOptions.clear()
-        supplierOptions.addAll(database.parts().distinctSuppliers().filter{ it.isNotBlank() })
+        supplierOptions.addAll(database.parts().distinctSuppliers().filter { it.isNotBlank() })
         Log.d("DB", "Distinct suppliers: ${supplierOptions}")
         listOf("Arrow", "Digikey", "LCSC", "Mouser").forEach { supplier ->
-            if (supplierOptions.find{it.contains(supplier, ignoreCase=true)} == null) {
+            if (supplierOptions.find { it.contains(supplier, ignoreCase = true) } == null) {
                 supplierOptions.add(supplier)
             }
         }
 
         manufacturerOptions.clear()
-        manufacturerOptions.addAll(database.parts().distinctManufacturers().filter{ it.isNotBlank() })
+        manufacturerOptions.addAll(
+            database.parts().distinctManufacturers().filter { it.isNotBlank() })
         Log.d("DB", "Distinct manufacturers: ${manufacturerOptions}")
     }
 
@@ -845,3 +703,4 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
     }
 
 }
+

@@ -1,10 +1,19 @@
 package com.codelv.inventory
 
+import android.annotation.SuppressLint
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebStorage
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -30,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.ButtonElevation
 import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -57,6 +67,7 @@ import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,18 +76,23 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -95,7 +111,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.text.trimmedLength
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -115,6 +133,10 @@ import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import com.journeyapps.barcodescanner.ScanContract
 import kotlinx.coroutines.launch
+import org.apache.commons.text.StringEscapeUtils
+import kotlin.collections.drop
+import kotlin.collections.firstOrNull
+import kotlin.math.min
 
 
 val TAG = "MainActivity"
@@ -171,7 +193,7 @@ fun Main(state: AppViewModel) {
             Log.i(TAG, "Navigate to edit-part?id=${partId}&import=${autoImport}")
             val savedPart = state.parts.find { it.id == partId }
             var part = if (savedPart != null) savedPart else Part(id = 0)
-            PartEditorScreen(nav, state, part,  autoImport == 1)
+            PartEditorScreen(nav, state, part, autoImport == 1)
         }
     }
 }
@@ -677,7 +699,7 @@ fun PartsList(parts: List<Part>, onPartClicked: (part: Part) -> Unit) {
                             .diskCachePolicy(
                                 CachePolicy.ENABLED
                             ).httpHeaders(
-                                NetworkHeaders.Builder().add("User-Agent", userAgent).build()
+                                NetworkHeaders.Builder().add("User-Agent", USER_AGENT).build()
                             )
                     AsyncImage(
                         model = req.build(),
@@ -777,11 +799,17 @@ fun ConfirmRemoveDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: Part,  autoImport: Boolean) {
+fun PartEditorScreen(
+    nav: NavHostController,
+    state: AppViewModel,
+    originalPart: Part,
+    autoImport: Boolean
+) {
     Log.i(TAG, "Editing part ${originalPart}")
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val scope = rememberCoroutineScope()
 
     var partId by remember { mutableStateOf(originalPart.id) }
     var partDesc by remember { mutableStateOf(originalPart.description) }
@@ -791,7 +819,6 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
     var partSku by remember { mutableStateOf(originalPart.sku) }
     var partMpn by remember { mutableStateOf(originalPart.mpn) }
     var partSupplier by remember { mutableStateOf(originalPart.supplier) }
-    var partSupplierUrl by remember { mutableStateOf(originalPart.supplierUrl()) }
     var partNumOrdered by remember { mutableStateOf(originalPart.num_ordered) }
     var partNumInStock by remember { mutableStateOf(originalPart.num_in_stock) }
     var partUnitPrice by remember { mutableStateOf(originalPart.unit_price) }
@@ -802,13 +829,37 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
     var editMode by remember { mutableStateOf(false) }
     var editing = partId == 0 || editMode
 
+    var showBottomSheet by remember { mutableStateOf(false) }
+    var importer by remember { mutableStateOf(originalPart.dataSupplier()) }
+    var importUrl by remember { mutableStateOf("") }
+    var importPage by remember { mutableStateOf<String?>(null) }
+    var importHeaders by remember { mutableStateOf<Map<String, String>>(mapOf()) }
+    val settings by state.settings.collectAsState()
+
     val importPartData: () -> Unit = {
         scope.launch {
+
             if (originalPart.supplier.isBlank()) {
-                originalPart.supplier = state.settings.value.defaultSupplier
-                partSupplier = state.settings.value.defaultSupplier
+                originalPart.supplier = settings.defaultSupplier
+                partSupplier = settings.defaultSupplier
+                importer = originalPart.dataSupplier()
             }
-            when (originalPart.importFromSupplier()) {
+
+            if (importer == null) {
+                snackbarState.showSnackbar("Unsupported supplier. Cannot import.")
+                return@launch
+            }
+
+            if (settings.useWebview && importPage == null) {
+                // Set url and wait for webview to load
+                importUrl = importer!!.searchPartUrl(originalPart)
+                importHeaders = importer!!.requestHeaders()
+                showBottomSheet = importUrl.isNotEmpty()
+                // Fetch page in webview then re-call the function with the page
+                return@launch
+            }
+            snackbarState.showSnackbar("Importing part data...")
+            when (importer!!.importPartData(originalPart, importPage, false)) {
                 ImportResult.Success -> {
                     // Force update
                     partImage = originalPart.pictureUrl
@@ -828,14 +879,17 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     } else {
                         state.savePart(originalPart)
                     }
+                    showBottomSheet = false
                     snackbarState.showSnackbar(msg)
                 }
 
                 ImportResult.NoData -> {
+                    showBottomSheet = false
                     snackbarState.showSnackbar("No data was imported.")
                 }
 
                 ImportResult.MultipleResults -> {
+                    showBottomSheet = false
                     val r = snackbarState.showSnackbar(
                         "No exact part match found. Try adding an SKU",
                         actionLabel = "Search supplier website"
@@ -846,7 +900,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                                 val browserIntent =
                                     Intent(
                                         Intent.ACTION_VIEW,
-                                        Uri.parse(originalPart.supplierUrl())
+                                        Uri.parse(importer?.searchPartUrl(originalPart))
                                     )
                                 context.startActivity(browserIntent)
                             } catch (e: Exception) {
@@ -861,9 +915,12 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                 }
 
                 else -> {
+                    showBottomSheet = false
                     snackbarState.showSnackbar("Failed to import.")
                 }
             }
+
+
         }
     }
 
@@ -906,7 +963,10 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                         if (partMpn.isNotBlank() || partSku.isNotBlank()) {
                             DropdownMenuItem(
                                 text = { Text("Import from supplier") },
-                                onClick = { importPartData() },
+                                onClick = {
+                                    expanded = false
+                                    importPartData()
+                                },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Filled.SystemUpdateAlt,
@@ -1026,13 +1086,18 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                             Text("Datasheet")
                         }
                     }
-                    if (partSupplierUrl.isNotBlank()) {
+
+                    if (importer != null) {
                         Button(
                             modifier = Modifier.padding(8.dp),
                             onClick = {
                                 try {
+
                                     val browserIntent =
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(partSupplierUrl))
+                                        Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse(importer?.searchPartUrl(originalPart))
+                                        )
                                     context.startActivity(browserIntent)
                                 } catch (e: Exception) {
                                     scope.launch {
@@ -1044,6 +1109,7 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                             Text("Open supplier website")
                         }
                     }
+
                 }
 
                 if (editing) {
@@ -1134,7 +1200,11 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                             singleLine = true,
                             // colors = ExposedDropdownMenuDefaults.textFieldColors(),
                             value = partSupplier,
-                            onValueChange = { partSupplier = it; originalPart.supplier = it },
+                            onValueChange = {
+                                partSupplier = it
+                                originalPart.supplier = it
+                                importer = originalPart.dataSupplier()
+                            },
                             trailingIcon = {
                                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = supplierMenuExpanded)
                             },
@@ -1352,6 +1422,84 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
                     fontSize = 12.sp,
                     modifier = Modifier.padding(8.dp, 4.dp)
                 )
+
+            }
+            if (showBottomSheet) {
+                var loading by remember { mutableStateOf(true) }
+                ModalBottomSheet(
+                    onDismissRequest = {
+                        showBottomSheet = false
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    sheetState = sheetState
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(it)
+                            .verticalScroll(rememberScrollState())
+                            .fillMaxWidth()
+                    ) {
+                        WebPageView(
+                            importUrl,
+                            importHeaders,
+                            onInit = { view ->
+                                // Let importer configure it
+                                if (importer != null) {
+                                    importer!!.initWebView(view)
+                                }
+                            },
+                            onDeinit = { view ->
+                                if (importer != null) {
+                                    importer!!.deinitWebView(view)
+                                }
+                            },
+                            onPageStarted = { view, url -> loading = true },
+                            onPageFinished = { view, url ->
+                                // This is called a bunch of times for for all the redirects and
+                                // bot detection garbage
+                                loading = false
+                                view.evaluateJavascript("document.documentElement.outerHTML", { v ->
+                                    val content =
+                                        if (v != null) StringEscapeUtils.unescapeJava(v) else ""
+                                    Log.d(
+                                        "webview",
+                                        "Page content ${content}"
+                                    )
+                                    if (content.isNotEmpty() && content != "null" && importer != null && showBottomSheet) {
+                                        if (importer!!.isProductPage(url, content)) {
+                                            importPage = content // Store page
+                                            view.stopLoading()
+                                            Log.d("import", "Importing data from ${url}")
+                                            importPartData()
+                                            showBottomSheet = false
+                                        }
+                                    }
+                                })
+                            },
+                            doUpdateVisitedHistory = { view, url, isReload ->
+                                // If the page url is changed via js it doesn't call onPageFinished
+                                // and the html isn't captured. This is a workaround so importing still
+                                // works if the search brings up a catalog page instead of the product page
+                                if (showBottomSheet && !isReload && importer != null && importer!!.isProductPage(
+                                        url,
+                                        ""
+                                    ) && url != importUrl
+                                ) {
+                                    importUrl = url
+                                }
+                            },
+                            shouldInterceptRequest = { view, request ->
+                                val host = request.url.host
+                                if (host != null && host.indexOfAny(BLOCKED_HOSTS, 0, true) >= 0) {
+                                    Log.d("webview", "Blocked url: ${request.url}")
+                                    WebResourceResponse("text/html", "UTF-8", null)
+                                } else {
+                                    null
+                                }
+                            }
+                        )
+                    }
+                }
             }
         }
     )
@@ -1359,7 +1507,6 @@ fun PartEditorScreen(nav: NavHostController, state: AppViewModel, originalPart: 
     // Auto import data if a new part is scanned
     if (autoImport) {
         LaunchedEffect(autoImport) {
-            snackbarState.showSnackbar("Importing part data...")
             importPartData()
         }
     }
@@ -1373,6 +1520,10 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
     val scope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
     val settings by state.settings.collectAsState()
+    // Use a copy or the switch doesn't update
+    var defaultSupplier by remember { mutableStateOf(settings.defaultSupplier) }
+    var useWebview by remember { mutableStateOf(settings.useWebview) }
+
     val sortOptions = mapOf(
         "" to "Default",
         "mpn" to "MPN asc",
@@ -1416,8 +1567,11 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
                     modifier = Modifier
                         .padding(8.dp)
                         .fillMaxWidth(),
-                    value = settings.defaultSupplier,
-                    onValueChange = { settings.defaultSupplier = it; },
+                    value = defaultSupplier,
+                    onValueChange = {
+                        defaultSupplier = it
+                        settings.defaultSupplier = it
+                    },
                     singleLine = true,
                     label = { Text("Default Supplier") }
                 )
@@ -1457,18 +1611,109 @@ fun SettingsScreen(nav: NavHostController, state: AppViewModel) {
                         }
                     }
                 }
+
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .padding(8.dp)
+                ) {
+                    Switch(
+                        checked = useWebview,
+                        onCheckedChange = {
+                            settings.useWebview = it
+                            useWebview = settings.useWebview
+                        }
+                    )
+                    Text(
+                        text = "Import part data using webview and js",
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
             }
         },
     )
 
 }
-//
-//
-//@Preview(showBackground = true)
-//@Composable
-//fun DefaultPreview() {
-//    var state = AppViewModel(database = (application as App).db)
-//    AppTheme {
-//        Main(state)
-//    }
-//}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun WebPageView(
+    url: String,
+    headers: Map<String, String>,
+    onInit: (view: WebView) -> Unit,
+    onDeinit: (view: WebView) -> Unit,
+    onPageFinished: ((view: WebView, url: String) -> Unit)? = null,
+    onPageStarted: ((view: WebView, url: String) -> Unit)? = null,
+    shouldInterceptRequest: ((view: WebView, request: WebResourceRequest) -> WebResourceResponse?)? = null,
+    doUpdateVisitedHistory: ((view: WebView, url: String, isReload: Boolean) -> Unit)? = null,
+) {
+    var view by remember { mutableStateOf<WebView?>(null) }
+    var owner = LocalLifecycleOwner.current
+
+    AndroidView(factory = {
+        WebView(it).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setWebViewClient(object : WebViewClient() {
+                // WARNING: This only appears to work for GET requests and does not block a majority of the garbage requests
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest
+                ): WebResourceResponse? {
+                    if (shouldInterceptRequest != null) {
+                        return shouldInterceptRequest(view, request)
+                    }
+                    return super.shouldInterceptRequest(view, url)
+                }
+
+                override fun doUpdateVisitedHistory(
+                    view: WebView?,
+                    url: String?,
+                    isReload: Boolean
+                ) {
+                    if (view != null && url != null && doUpdateVisitedHistory != null) {
+                        Log.d("webview", "Update history: ${url}")
+                        doUpdateVisitedHistory(view, url, isReload)
+                    }
+                    super.doUpdateVisitedHistory(view, url, isReload)
+                }
+
+                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                    if (view != null && url != null && onPageStarted != null) {
+                        Log.d("webview", "Page started ${url}")
+                        onPageStarted(view, url)
+                    }
+                    super.onPageStarted(view, url, favicon)
+                }
+
+                override fun onPageFinished(view: WebView, url: String) {
+                    Log.d("webview", "Page finished ${url}")
+                    if (onPageFinished != null) {
+                        onPageFinished(view, url)
+                    }
+                }
+            })
+            Log.d("webview", "init webview")
+            view = this
+            onInit(this)
+            if (url.isNotBlank()) {
+                loadUrl(url, headers)
+            }
+        }
+    }, update = { view ->
+        if (url.isNotBlank()) {
+            view.loadUrl(url, headers)
+        }
+    })
+    DisposableEffect(owner) {
+        onDispose {
+            if (view != null) {
+                Log.d("webview", "deinit webview")
+                onDeinit(view!!)
+            }
+        }
+    }
+}

@@ -14,8 +14,8 @@ android {
         applicationId = "com.codelv.inventory"
         minSdk = 24
         targetSdk = 34
-        versionCode = 11
-        versionName = "1.0.11"
+        versionCode = 12
+        versionName = "1.0.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -104,6 +104,7 @@ dependencies {
     // XML Parsing
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.0")
     implementation(libs.org.jsoup)
+    implementation(libs.org.apache.commons.text)
 
     // SQLite
     implementation(libs.androidx.room.runtime)
