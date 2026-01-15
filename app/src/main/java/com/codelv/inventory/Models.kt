@@ -9,10 +9,12 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.core.text.trimmedLength
 import androidx.lifecycle.ViewModel
 import androidx.room.*
+import com.codelv.inventory.suppliers.Arrow
 import com.codelv.inventory.suppliers.Digikey
 import com.codelv.inventory.suppliers.LCSC
 import com.codelv.inventory.suppliers.Mouser
 import com.codelv.inventory.suppliers.RS
+import com.codelv.inventory.suppliers.RSUK
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -107,6 +109,7 @@ val USER_AGENTS = listOf(
 var BLOCKED_HOSTS = listOf(
     "analytics-eagain.com",
     "cookielaw.org",
+    "corvidae.ai",
     "datadoghq",
     "datadome",
     "evgnet.com",
@@ -115,13 +118,17 @@ var BLOCKED_HOSTS = listOf(
     "googleapis.com",
     "googletagmanager",
     "groupbycloud.com",
+    "iadvize.com",
     "jsdelivr.net",
     "launchdarkley.com",
     "liveperson.net",
     "newrelic",
     "px-cloud.net",
     "qualtics.com",
+    "salecycle.com",
     "sift.com",
+    "speedcurve.com",
+    "sub2tech.com",
 )
 
 var USER_AGENT = USER_AGENTS.random()
@@ -133,15 +140,6 @@ suspend fun fetch(url: String, retries: Int = 3): Document? {
         for (i in 0..max(1, retries))
             try {
                 var req = Jsoup.connect(url).userAgent(USER_AGENT).followRedirects(true)
-
-                if (url.contains("digikey.com")) {
-                    req = req.referrer("https://www.digikey.com")
-                        .header("Accept-Language", "en-US,en")
-                } else if (url.contains("mouser.com")) {
-                    // TODO: Use device locale
-                    req =
-                        req.referrer("https://www.mouser.com").header("Accept-Language", "en-US,en")
-                }
                 doc = req.get()
                 Log.d("FETCH", "OK!")
                 break
@@ -190,15 +188,16 @@ enum class ImportResult {
 
 // Basic interface
 open class DataSupplier(
+    val name: String,
     var requiresJs: Boolean = false,
     var requireStorage: Boolean = false,
     var requireIndexDB: Boolean = false,
 ) {
 
-
-    // Check if the provided name is this supplier
-    open fun matchesName(name: String): Boolean {
-        return false
+    // Check if the provided supplier name matches this data supplier
+    open fun matchesName(supplier: String): Boolean {
+        if (supplier.isBlank()) return false
+        return name.lowercase() == supplier.lowercase()
     }
 
     // Import data for the part using the given page source.
@@ -236,6 +235,12 @@ open class DataSupplier(
         return ""
     }
 
+    // Return whether the url matches the product page
+    // This is used to determine if it should capture the page and use it to import part data
+    open fun isProductPage(url: String): Boolean {
+        return false
+    }
+
     // Return the request headers needed for this site
     // Some sites require certain headers or they will block the request
     open fun requestHeaders(): Map<String, String> {
@@ -263,21 +268,17 @@ open class DataSupplier(
         Log.d("DataSupplier", "webview cache flushed")
     }
 
-
-    // Return whether the url matches the product page
-    // This is used to determine if it should capture the page and use it to import part data
-    open fun isProductPage(url: String, content: String): Boolean {
-        return false
-    }
 }
 
 
 // Registry of supported data suppliers
 val DATA_SUPPLIERS = listOf<DataSupplier>(
+    Arrow(),
     Digikey(),
     Mouser(),
     LCSC(),
     RS(),
+    RSUK(),
 )
 
 
@@ -607,15 +608,17 @@ class AppViewModel(val database: AppDatabase) : ViewModel() {
         supplierOptions.clear()
         supplierOptions.addAll(database.parts().distinctSuppliers().filter { it.isNotBlank() })
         Log.d("DB", "Distinct suppliers: ${supplierOptions}")
-        listOf("Arrow", "Digikey", "LCSC", "Mouser").forEach { supplier ->
-            if (supplierOptions.find { it.contains(supplier, ignoreCase = true) } == null) {
-                supplierOptions.add(supplier)
+        DATA_SUPPLIERS.forEach { supplier ->
+            if (supplierOptions.find { it.contains(supplier.name, ignoreCase = true) } == null) {
+                supplierOptions.add(supplier.name)
             }
         }
+        supplierOptions.sort()
 
         manufacturerOptions.clear()
         manufacturerOptions.addAll(
             database.parts().distinctManufacturers().filter { it.isNotBlank() })
+        manufacturerOptions.sort()
         Log.d("DB", "Distinct manufacturers: ${manufacturerOptions}")
     }
 

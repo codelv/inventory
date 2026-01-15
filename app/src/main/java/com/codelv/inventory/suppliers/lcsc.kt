@@ -8,39 +8,22 @@ import com.codelv.inventory.Part
 import com.codelv.inventory.cleanUrl
 import org.jsoup.nodes.Document
 
-class LCSC: DataSupplier(requiresJs=false) {
-    override fun matchesName(name: String): Boolean {
-        return name.uppercase() == "LCSC"
-    }
-
+class LCSC: DataSupplier(name="LCSC", requiresJs=false) {
     override fun searchUrl(q: String): String {
         return "https://www.lcsc.com/search?q=${q}"
     }
-    override fun isProductPage(url: String, content: String) : Boolean {
+    override fun isProductPage(url: String) : Boolean {
         return url.contains("lcsc.com/product-detail/")
     }
 
     override suspend fun importPartData(part: Part, doc: Document, overwrite: Boolean) : ImportResult {
         val tag = "LCSC"
-
         var result = false
-        if (doc.selectXpath("//div[@class=\"product-table\"]")
-                .first() != null
-        ) {
-            // TODO: May show only 1 result
-            return ImportResult.MultipleResults
-        }
 
-        if (part.pictureUrl.trimmedLength() == 0 || overwrite) {
-            var img =
-                doc.selectXpath("//div[@class=\"asset\"]//img")
-                    .first()
-            if (img == null) {
-
-
-            }
-            if (img != null && img.hasAttr("src")) {
-                part.pictureUrl = cleanUrl(img.attr("src"))
+        if (part.pictureUrl.isBlank() || overwrite) {
+            val node = doc.selectXpath("//meta[@name=\"og:image\"]").first()
+            if (node != null && node.hasAttr("content")) {
+                part.pictureUrl = cleanUrl(node.attr("content"))
                 Log.d(tag, "Imported picture url")
                 result = true
             } else {
@@ -48,17 +31,12 @@ class LCSC: DataSupplier(requiresJs=false) {
             }
         }
 
-        if (part.datasheetUrl.trimmedLength() == 0 || overwrite) {
-            var datasheet =
-                doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Datasheet\")]]//a")
+        if (part.datasheetUrl.isBlank() || overwrite) {
+            var node =
+                doc.selectXpath("//td[contains(text(), \"Datasheet\")]/following-sibling::*/a")
                     .first()
-            if (datasheet == null) {
-                datasheet =
-                    doc.selectXpath("//div[contains(text(), \"Datasheet:\")]/following-sibling::*/a")
-                        .first()
-            }
-            if (datasheet != null && datasheet.hasAttr("href")) {
-                part.datasheetUrl = cleanUrl(datasheet.attr("href"))
+            if (node != null && node.hasAttr("href")) {
+                part.datasheetUrl = cleanUrl(node.attr("href"))
                 Log.d(tag, "Imported datasheet url")
                 result = true
             } else {
@@ -66,17 +44,10 @@ class LCSC: DataSupplier(requiresJs=false) {
             }
         }
 
-        if (part.manufacturer.trimmedLength() == 0 || overwrite) {
-            var mfg =
-                doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Manufacturer\")]]//a")
-                    .first()
-            if (mfg == null) {
-                mfg =
-                    doc.selectXpath("//div[contains(text(), \"Manufacturer:\")]/following-sibling::*/a")
-                        .first()
-            }
-            if (mfg != null && mfg.hasText()) {
-                part.manufacturer = mfg.text().trim()
+        if (part.manufacturer.isBlank() || overwrite) {
+            var node = doc.selectXpath("//meta[@name=\"og:product:brand\"]").first()
+            if (node != null && node.hasAttr("content")) {
+                part.manufacturer = node.attr("content").trim()
                 Log.d(tag, "Imported manufacturer")
                 result = true
             } else {
@@ -84,19 +55,28 @@ class LCSC: DataSupplier(requiresJs=false) {
             }
         }
 
-        if (part.description.trimmedLength() == 0 || overwrite) {
-            var desc =
-                doc.selectXpath("//table[@class=\"info-table\"]//tr[td[contains(text(), \"Description\")]]//td")
-                    .last()
-            if (desc == null) {
-                desc =
-                    doc.selectXpath("//div[contains(text(), \"Description:\")]/following-sibling::*")
-                        .first()
+        if (part.sku.isBlank() || overwrite) {
+            var node =
+                doc.selectXpath("//td[contains(text(), \"LCSC Part #\")]/following-sibling::*/div/span")
+                    .first()
+            if (node != null && node.hasText()) {
+                part.sku = node.text().trim()
+                Log.d(tag, "Imported sku")
+                result = true
+            } else {
+                Log.d(tag, "No sku found")
             }
-            if (desc != null && desc.hasText()) {
-                part.description = desc.text().trim()
+        }
+
+        if (part.description.isBlank() || overwrite) {
+            var node = doc.selectXpath("//td[contains(text(), \"Description\")]/following-sibling::*")
+                        .first()
+            if (node != null && node.hasText()) {
+                part.description = node.text().trim()
                 Log.d(tag, "Imported description")
                 result = true
+            } else {
+                Log.d(tag, "No description found")
             }
         }
         return if (result) ImportResult.Success else ImportResult.NoData

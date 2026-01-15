@@ -8,37 +8,29 @@ import com.codelv.inventory.Part
 import com.codelv.inventory.cleanUrl
 import org.jsoup.nodes.Document
 
-class Digikey: DataSupplier(name="Digikey", requiresJs=true) {
-
+class Arrow: DataSupplier(name="Arrow", requiresJs = true) {
     override fun searchUrl(q: String): String {
-        return "https://www.digikey.com/en/products/result?keywords=${q}"
+        return "https://www.arrow.com/en/products/search?q=${q}"
     }
 
     override fun isProductPage(url: String) : Boolean {
-        return url.contains("digikey.com/") && url.contains("/products/detail/")
+        return url.contains("arrow.com/") && !url.contains("/search")
+                && url.contains("/products/")
     }
 
     override fun requestHeaders() : Map<String, String> {
         return mapOf(
-            "Referer" to "https://www.digikey.com",
+            "Referer" to "https://www.arrow.com",
             "Accept-Language" to "en-US,en"
         )
     }
-
     override suspend fun importPartData(part: Part, doc: Document, overwrite: Boolean) : ImportResult {
-        val tag = "Digikey"
+        val tag = "Arrow"
         var result = false
-
-        // TODO: Detect "Were a fan of robots"
-        if (doc.selectXpath("//div[@data-testid=\"category-page\"]")
-                .first() != null
-        ) {
-            return ImportResult.MultipleResults
-        }
 
         if (part.pictureUrl.isBlank() || overwrite) {
             val img =
-                doc.selectXpath("//*[@data-testid=\"carousel-main-image\"]//img")
+                doc.selectXpath("//img[@class=\"Product-Summary-Image\"]")
                     .first()
             if (img != null && img.hasAttr("src")) {
                 part.pictureUrl = cleanUrl(img.attr("src"))
@@ -50,10 +42,10 @@ class Digikey: DataSupplier(name="Digikey", requiresJs=true) {
         }
 
         if (part.datasheetUrl.isBlank() || overwrite) {
-            val datasheet =
-                doc.selectXpath("//a[@data-testid=\"datasheet-download\"]").first()
-            if (datasheet != null && datasheet.hasAttr("href")) {
-                part.datasheetUrl = cleanUrl(datasheet.attr("href"))
+            val a =
+                doc.selectXpath("//a[contains(@class, \"DatasheetViewer-downloadButton\")]").first()
+            if (a != null && a.hasAttr("href")) {
+                part.datasheetUrl = cleanUrl(a.attr("href"))
                 Log.d(tag, "Imported datasheet url")
                 result = true
             } else {
@@ -62,11 +54,11 @@ class Digikey: DataSupplier(name="Digikey", requiresJs=true) {
         }
 
         if (part.manufacturer.isBlank() || overwrite) {
-            val mfg =
-                doc.selectXpath("//*[@data-testid=\"overview-manufacturer\"]//a")
+            val node =
+                doc.selectXpath("//*[@class=\"Product-SimplifiedSummary-SubHeading-Manufacturer\"]")
                     .first()
-            if (mfg != null && mfg.hasText()) {
-                part.manufacturer = mfg.text().trim()
+            if (node != null && node.hasText()) {
+                part.manufacturer = node.text().trim()
                 Log.d(tag, "Imported manufacturer")
                 result = true
             } else {
@@ -75,13 +67,16 @@ class Digikey: DataSupplier(name="Digikey", requiresJs=true) {
         }
 
         if (part.description.isBlank() || overwrite) {
-            for (div in doc.selectXpath("//*[@data-testid=\"detailed-description\"]/*/div")) {
-                if (div.hasText() && !div.text().startsWith("Detailed")) {
-                    part.description = div.text()
-                    Log.d(tag, "Imported description")
-                    result = true
-                    break
-                }
+            val node =
+                doc.selectXpath("//*[@class=\"Product-Summary-Description\"]")
+                    .first()
+
+            if (node != null && node.hasText()) {
+                part.description = node.text().trim()
+                Log.d(tag, "Imported description")
+                result = true
+            } else {
+                Log.d(tag, "No description found")
             }
         }
         return if (result) ImportResult.Success else ImportResult.NoData

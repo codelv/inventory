@@ -337,7 +337,7 @@ fun ScanList(scans: List<Scan>, onScanClicked: (scan: Scan) -> Unit) {
 // Search parts in memory. Can use " and " to separate multiple filters
 // and
 fun search(parts: List<Part>, query: String, ignoreCase: Boolean = true): List<Part> {
-    if (query.trimmedLength() == 0) {
+    if (query.isBlank()) {
         return parts // No query
     }
     val splitQuery = query.lowercase().replace(" and ", ",").split(",")
@@ -351,7 +351,7 @@ fun search(parts: List<Part>, query: String, ignoreCase: Boolean = true): List<P
                 true// Ignore empty strings
             else if (":" in q) {
                 val (k, v) = q.split(":", limit = 2)
-                if (k.trimmedLength() == 0 || v.trimmedLength() == 0) {
+                if (k.isBlank() || v.isBlank()) {
                     true // Ignore empty key or value
                 } else when (k.trim().lowercase()) {
                     "mpn" -> part.mpn.contains(v.trim(), ignoreCase)
@@ -842,11 +842,11 @@ fun PartEditorScreen(
             if (originalPart.supplier.isBlank()) {
                 originalPart.supplier = settings.defaultSupplier
                 partSupplier = settings.defaultSupplier
-                importer = originalPart.dataSupplier()
             }
 
+            importer = originalPart.dataSupplier()
             if (importer == null) {
-                snackbarState.showSnackbar("Unsupported supplier. Cannot import.")
+                snackbarState.showSnackbar("Unsupported supplier '${partSupplier}'. Cannot import.")
                 return@launch
             }
 
@@ -866,6 +866,9 @@ fun PartEditorScreen(
                     partDatasheet = originalPart.datasheetUrl
                     partDesc = originalPart.description
                     partManufacturer = originalPart.manufacturer
+                    if (partSku.isBlank()) {
+                        partSku = originalPart.sku
+                    }
                     partUpdated = originalPart.updated
 
                     // If import is pressed before save
@@ -1022,9 +1025,10 @@ fun PartEditorScreen(
                         scope.launch {
                             var msg = "Part saved!"
                             // Set default supplier if none was set
-                            if (originalPart.supplier.isBlank()) {
-                                originalPart.supplier = state.settings.value.defaultSupplier
-                                partSupplier = state.settings.value.defaultSupplier
+                            if (partSupplier.isBlank()) {
+                                originalPart.supplier = settings.defaultSupplier
+                                partSupplier = settings.defaultSupplier
+                                importer = originalPart.dataSupplier()
                             }
                             if (partId == 0) {
                                 if (state.addPart(originalPart)) {
@@ -1228,6 +1232,7 @@ fun PartEditorScreen(
                                         onClick = {
                                             partSupplier = option
                                             originalPart.supplier = option
+                                            importer = originalPart.dataSupplier()
                                             supplierMenuExpanded = false
                                         }
                                     ) {
@@ -1458,32 +1463,50 @@ fun PartEditorScreen(
                                 // This is called a bunch of times for for all the redirects and
                                 // bot detection garbage
                                 loading = false
-                                view.evaluateJavascript("document.documentElement.outerHTML", { v ->
-                                    val content =
-                                        if (v != null) StringEscapeUtils.unescapeJava(v) else ""
-                                    Log.d(
-                                        "webview",
-                                        "Page content ${content}"
-                                    )
-                                    if (content.isNotEmpty() && content != "null" && importer != null && showBottomSheet) {
-                                        if (importer!!.isProductPage(url, content)) {
-                                            importPage = content // Store page
-                                            view.stopLoading()
+                                if (showBottomSheet && importer != null && importer!!.isProductPage(url)) {
+                                    // If js is enabled use that to retrieve the content
+                                    if (view.settings.javaScriptEnabled) {
+                                        view.evaluateJavascript("document.documentElement.outerHTML", { v ->
+                                            val content =
+                                                if (v != null) StringEscapeUtils.unescapeJava(v) else ""
+                                            Log.d(
+                                                "webview",
+                                                "Page content ${content}"
+                                            )
+                                            if (
+                                                content.isNotEmpty()
+                                                && content != "null"
+                                                && content != "\"<html><head></head><body></body></html>\""
+                                                && importer != null
+                                                && showBottomSheet
+                                            ) {
+                                                importPage = content // Store page
+                                                view.stopLoading()
+                                                Log.d("import", "Importing data from ${url}")
+                                                importPartData()
+                                                showBottomSheet = false
+                                            }
+                                        })
+                                    } else {
+                                        // If js is disabled, fetch it (again) using jsoup
+                                        view.stopLoading()
+                                        scope.launch {
                                             Log.d("import", "Importing data from ${url}")
-                                            importPartData()
-                                            showBottomSheet = false
+                                            val doc = fetch(url)
+                                            if (doc != null) {
+                                                importPage = doc.html()
+                                                importPartData()
+                                            }
                                         }
+
                                     }
-                                })
+                                }
                             },
                             doUpdateVisitedHistory = { view, url, isReload ->
                                 // If the page url is changed via js it doesn't call onPageFinished
                                 // and the html isn't captured. This is a workaround so importing still
                                 // works if the search brings up a catalog page instead of the product page
-                                if (showBottomSheet && !isReload && importer != null && importer!!.isProductPage(
-                                        url,
-                                        ""
-                                    ) && url != importUrl
+                                if (showBottomSheet && !isReload && importer != null && importer!!.isProductPage(url) && url != importUrl
                                 ) {
                                     importUrl = url
                                 }

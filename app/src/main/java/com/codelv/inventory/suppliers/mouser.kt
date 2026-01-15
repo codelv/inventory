@@ -8,15 +8,13 @@ import com.codelv.inventory.Part
 import com.codelv.inventory.cleanUrl
 import org.jsoup.nodes.Document
 
-class Mouser: DataSupplier(requiresJs=true) {
-    override fun matchesName(name: String): Boolean {
-        return name.lowercase() == "mouser"
-    }
+class Mouser: DataSupplier(name="Mouser", requiresJs=true) {
+
     override fun searchUrl(q: String): String {
         return "https://www.mouser.com/c/?q=${q}"
     }
 
-    override fun isProductPage(url: String, content: String) : Boolean {
+    override fun isProductPage(url: String) : Boolean {
         return url.contains("mouser.com/ProductDetail/")
     }
 
@@ -37,7 +35,7 @@ class Mouser: DataSupplier(requiresJs=true) {
             return ImportResult.MultipleResults
         }
 
-        if (part.pictureUrl.trimmedLength() == 0 || overwrite) {
+        if (part.pictureUrl.isBlank() || overwrite) {
             val img =
                 doc.selectXpath("//meta[@property=\"og:image\"]")
                     .first()
@@ -50,7 +48,7 @@ class Mouser: DataSupplier(requiresJs=true) {
             }
         }
 
-        if (part.datasheetUrl.trimmedLength() == 0 || overwrite) {
+        if (part.datasheetUrl.isBlank() || overwrite) {
             val datasheet =
                 doc.selectXpath("//a[@id=\"pdp-datasheet_0\"]").first()
             if (datasheet != null && datasheet.hasAttr("href")) {
@@ -62,7 +60,7 @@ class Mouser: DataSupplier(requiresJs=true) {
             }
         }
 
-        if (part.manufacturer.trimmedLength() == 0 || overwrite) {
+        if (part.manufacturer.isBlank() || overwrite) {
             val mfg =
                 doc.selectXpath("//a[@id=\"lnkManufacturerName\"]")
                     .first()
@@ -75,7 +73,7 @@ class Mouser: DataSupplier(requiresJs=true) {
             }
         }
 
-        if (part.sku.trimmedLength() == 0 || overwrite) {
+        if (part.sku.isBlank() || overwrite) {
             val sku =
                 doc.selectXpath("//span[@id=\"spnMouserPartNumFormattedForProdInfo\"]")
                     .first()
@@ -88,7 +86,7 @@ class Mouser: DataSupplier(requiresJs=true) {
             }
         }
 
-        if (part.description.trimmedLength() == 0 || overwrite) {
+        if (part.description.isBlank() || overwrite) {
             val span = doc.selectXpath("//span[@id=\"spnDescription\"]").first()
             if (span != null && span.hasText()) {
                 part.description = span.text().trim()
