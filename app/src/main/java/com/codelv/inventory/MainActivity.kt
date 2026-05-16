@@ -1,6 +1,7 @@
 package com.codelv.inventory
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -1681,6 +1682,25 @@ fun WebPageView(
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setWebViewClient(object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): Boolean {
+                    val target = request?.url ?: return false
+                    val scheme = target.scheme?.lowercase()
+                    if (scheme == "http" || scheme == "https" || scheme == "about") return false
+                    return try {
+                        val intent = Intent(Intent.ACTION_VIEW, target).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        view?.context?.startActivity(intent)
+                        true
+                    } catch (e: ActivityNotFoundException) {
+                        Log.w("webview", "No handler for $target", e)
+                        true
+                    }
+                }
+
                 // WARNING: This only appears to work for GET requests and does not block a majority of the garbage requests
                 override fun shouldInterceptRequest(
                     view: WebView,
